@@ -21,8 +21,9 @@ surfaces hardcode their own sizes besides. This script patches:
                        answered-AskUserQuestion review box, and the secondary
                        line under tool headers: "Answered · N questions",
                        "Added N lines", ...) back to the normal chat size
-  webview/index.js   - pass the two variables into the embedded Monaco diff
-                       editors, replacing their hardcoded fontSize: 12
+  webview/index.js   - pass the family variable into the embedded Monaco
+                       diff editors (they already take their size from the
+                       size variable)
 
 There is no load-time integrity check on these files (VS Code verifies
 extension signatures only at install time), so editing them in place is
@@ -44,10 +45,8 @@ BACKUP_SUFFIX   = ".orig-font"
 
 EDITOR_SIZE   = "var(--vscode-editor-font-size,12px)"
 EDITOR_FAMILY = "var(--vscode-editor-font-family)"
-# Same two variables, read at Monaco-editor construction time in JS.
-MONACO_FONT_OPTIONS = (
-	'fontSize:parseFloat(getComputedStyle(document.documentElement)'
-	'.getPropertyValue("--vscode-editor-font-size"))||12,'
+# The family variable, read at Monaco-editor construction time in JS.
+MONACO_FONT_FAMILY = (
 	'fontFamily:getComputedStyle(document.documentElement)'
 	'.getPropertyValue("--vscode-editor-font-family").trim()||void 0'
 )
@@ -98,11 +97,13 @@ def patterns():
 		],
 		"webview/index.js": [
 			# The two embedded Monaco diff editors (chat diffs and previews).
-			# Anchored on the createDiffEditor call rather than neighbouring
-			# options, which change between versions (2.1.270 dropped
-			# theme:"vs-dark").
-			(re.compile(r'(createDiffEditor\([\w.]+,\{[^;]*?)fontSize:12(?=[,}])'),
-			 r"\1" + MONACO_FONT_OPTIONS),
+			# Since 2.1.300 they size themselves from --app-monospace-font-size
+			# (i.e. the editor size) and follow its changes, but still fall
+			# back to Monaco's default family; add the editor family after
+			# the fontSize option. Anchored on the createDiffEditor call
+			# rather than neighbouring options, which change between versions.
+			(re.compile(r'(createDiffEditor\([\w.]+,\{[^;]*?fontSize:[\w$]+\(\))(?=[,}])'),
+			 r"\1," + MONACO_FONT_FAMILY),
 		],
 		"extension.js": [
 			# Feed the webview override from editor.* instead of chat.editor.*
