@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+# Model-output: Claude Opus 5.5
+r"""Claude Code PreToolUse hook: make the user confirm any tool call that could
+reach the network and carries one of their private strings (name, email, ...).
+
+The strings live one per line in a config file kept outside this repo
+(default ~/.config/claude-outbound-firewall/blocked-strings); blank lines and
+lines starting with # are skipped. Only letters and digits are compared,
+case-insensitively, in both the raw and the percent-decoded text, so
+"Ada+Lovelace", 'ada\ lovelace', "ada-lovelace" and "ada%40example.org" all
+match.
+
+This inspects what Claude asks a tool to do, not the bytes that leave the
+machine: a Bash command that reads a string from a file at run time, or
+encodes it, gets through. The file tools in LOCAL_TOOLS are not inspected,
+since they stay on this machine.
+
+On a match the hook answers "ask", so the user gets a permission prompt; in a
+`claude -p` run nobody can answer it, so the call is refused. A missing config
+asks too, so the firewall never silently fails open.
+
+Install by adding to ~/.claude/settings.json:
+
+	"hooks": {"PreToolUse": [{"matcher": "*", "hooks": [
+		{"type": "command", "command": "/path/to/outbound-firewall"}]}]}
+
+Usage: outbound-firewall [CONFIG]   (reads the hook's JSON input on stdin)
+"""
+
+import json
+import re
+import sys
+from collections.abc import Iterator
+from pathlib import Path
+from urllib.parse import unquote_plus
+
+DEFAULT_CONFIG = Path.home() / ".config" / "claude-outbound-firewall" / "blocked-strings"
+LOCAL_TOOLS    = frozenset({"Read", "Edit", "Write", "NotebookEdit", "Grep", "Glob", "TodoWrite", "AskUserQuestion"})
+NOT_COMPARED   = re.compile(r"[\W_]+")
+
+
+def normalize(text: str) -> str:
+	"""Return just the letters and digits of `text`, casefolded."""
+	return NOT_COMPARED.sub("", text.casefold())
+
+
+def load_blocked(path: Path) -> dict[str, str]:
+	"""Read the config at `path`.
+
+	Returns a map from each blocked string's normalized form to the string as
+	written in the config.
+	"""
+	blocked = {}
+	for line in path.read_text().splitlines():
+		entry = line.strip()
+		if not entry or entry.startswith("#"):
+			continue
+		key = normalize(entry)
+		if not key:
+			raise ValueError(f"{entry!r} has no letters or digits, so it would match everything")
+		blocked[key] = entry
+	return blocked
+
+
+def strings_in(value: object) -> Iterator[str]:
+	"""Yield every string in the JSON value `value`, object keys included."""
+	if isinstance(value, str):
+		yield value
+	elif isinstance(value, dict):
+		for key, item in value.items():
+			yield key
+			yield from strings_in(item)
+	elif isinstance(value, list):
+		for item in value:
+			yield from strings_in(item)
+
+
+def first_blocked(tool_input: object, blocked: dict[str, str]) -> str | None:
+	"""Return the first blocked string (as written in the config) found in
+	`tool_input`, or None if there is none."""
+	for text in strings_in(tool_input):
+		forms = (normalize(text), normalize(unquote_plus(text)))
+		for key, entry in blocked.items():
+			if any(key in form for form in forms):
+				return entry
+	return None
+
+
+def ask(reason: str) -> None:
+	"""Tell Claude Code to show the user a permission prompt giving `reason`."""
+	json.dump({"hookSpecificOutput": {
+		"hookEventName":            "PreToolUse",
+		"permissionDecision":       "ask",
+		"permissionDecisionReason": reason,
+	}}, sys.stdout)
+
+
+def main() -> None:
+	config = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_CONFIG
+	event  = json.load(sys.stdin)
+	assert event["hook_event_name"] == "PreToolUse", f"wired to {event['hook_event_name']}, not PreToolUse"
+	tool = event["tool_name"]
+	if tool in LOCAL_TOOLS:
+		return
+
+	try:
+		blocked = load_blocked(config)
+	except (OSError, ValueError) as e:
+		ask(f"outbound-firewall can't use its config {config}: {e}")
+		return
+	entry = first_blocked(event["tool_input"], blocked)
+	if entry is not None:
+		ask(f"outbound-firewall: this {tool} call contains {entry!r}, listed in {config}")
+
+
+if __name__ == "__main__":
+	main()
