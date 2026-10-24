@@ -3,6 +3,7 @@
 
 import json
 import subprocess
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -24,11 +25,16 @@ def run_hook(config: Path, tool_name: str, tool_input: object) -> str | None:
 	return output["permissionDecisionReason"]
 
 
+def write_config(tmp_path: Path, text: str) -> Path:
+	"""Write a config holding `text` and return its path."""
+	path = tmp_path / "blocked-strings"
+	path.write_text(text)
+	return path
+
+
 @pytest.fixture
 def config(tmp_path: Path) -> Path:
-	path = tmp_path / "blocked-strings"
-	path.write_text("# private\n\nAda Lovelace\n  ada@example.org  \n")
-	return path
+	return write_config(tmp_path, "﻿# private\n\nAda Lovelace\n  ada@example.org  # work\n+1 555 123 4567\n")
 
 
 @pytest.mark.parametrize("tool_name, tool_input", [
@@ -39,31 +45,43 @@ def config(tmp_path: Path) -> Path:
 	("Bash",          {"command": "git log --author 'ada\nlovelace'"}),
 	("WebFetch",      {"url": "https://x.test/?mail=ada%40example.org", "prompt": "summarize"}),
 	("WebSearch",     {"query": "ADA@EXAMPLE.ORG"}),
+	("WebSearch",     {"query": "ａｄａ＠ｅｘａｍｐｌｅ．ｏｒｇ"}),
+	("WebSearch",     {"query": unicodedata.normalize("NFD", "Àda Lovelacé")}),
 	("mcp__srv__run", {"args": [{"nested": {"who": "Ada Lovelace"}}]}),
 	("mcp__srv__run", {"Ada Lovelace": 1}),
+	("mcp__srv__run", {"first": "Ada", "last": "Lovelace"}),
+	("mcp__srv__run", {"phone": 15551234567}),
 ])
 def test_asks_on_blocked_string(config: Path, tool_name: str, tool_input: object) -> None:
 	reason = run_hook(config, tool_name, tool_input)
-	assert reason is not None and tool_name in reason
+	assert reason is not None and tool_name in reason and str(config) not in reason
 
 
 @pytest.mark.parametrize("tool_name, tool_input", [
 	("Bash",     {"command": "curl https://x.test/?q=ada"}),
+	("Bash",     {"command": "echo private work"}),
 	("WebFetch", {"url": "https://example.org/", "prompt": "summarize"}),
 	("Read",     {"file_path": "/home/ada/Ada Lovelace.txt"}),
 	("Write",    {"file_path": "/tmp/x", "content": "ada@example.org"}),
+	("mcp__srv__upload", {"path": "/dev/null", "flag": True}),
 ])
 def test_lets_through(config: Path, tool_name: str, tool_input: object) -> None:
 	assert run_hook(config, tool_name, tool_input) is None
 
 
-def test_missing_config_asks(tmp_path: Path) -> None:
-	reason = run_hook(tmp_path / "absent", "Bash", {"command": "true"})
-	assert reason is not None and "can't use its config" in reason
+def test_reads_files_named_by_arguments(config: Path, tmp_path: Path) -> None:
+	report = tmp_path / "report.html"
+	report.write_text("<p>Prepared for Ada Lovelace</p>")
+	assert run_hook(config, "mcp__srv__upload", {"path": str(report)}) is not None
 
 
-def test_entry_without_letters_or_digits_asks(tmp_path: Path) -> None:
-	config = tmp_path / "blocked-strings"
-	config.write_text("--\n")
+@pytest.mark.parametrize("text, complaint", [
+	(None,                     "No such file"),
+	("",                       "lists no strings"),
+	("# only a comment\n",     "lists no strings"),
+	("Ada\n",                  "fewer than"),
+])
+def test_unusable_config_asks(tmp_path: Path, text: str | None, complaint: str) -> None:
+	config = tmp_path / "blocked-strings" if text is None else write_config(tmp_path, text)
 	reason = run_hook(config, "Bash", {"command": "true"})
-	assert reason is not None and "match everything" in reason
+	assert reason is not None and complaint in reason
