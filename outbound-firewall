@@ -12,6 +12,15 @@ accents, so "Ada+Lovelace", 'ada\ lovelace' and "ada-lovelace" all match
 at example dot org"). Each string needs at least MIN_ENTRY letters and
 digits, lest it match unrelated text or decoding noise.
 
+Agents like to pass git the user's identity (git -c user.name=... -c
+user.email=... commit), so a Bash command first loses each such option, in
+front of git's subcommand, that just repeats the identity in git's global
+config. git would use that identity anyway, so it does the same thing; and
+the dropped text never runs, so it can't leak, even if it was really data
+(as in `curl -d "git -c user.email=..."`, or a script written by a heredoc,
+which then runs git without them). That's why finding it needs no shell
+parser. What's left is checked as below.
+
 All the strings and numbers in the tool call's input are checked as one
 text, so a name split across fields ({"first": "Ada", "last": "Lovelace"})
 still matches. So is the start of any file an argument names by absolute
@@ -56,11 +65,14 @@ Usage: outbound-firewall [CONFIG]   (reads the hook's JSON input on stdin)
 import binascii
 import bz2
 import codecs
+import functools
 import html
 import json
 import lzma
 import math
 import re
+import shlex
+import subprocess
 import sys
 import unicodedata
 import zlib
@@ -90,6 +102,10 @@ ATBASH         = str.maketrans(LETTERS, LETTERS[::-1])
 COMPRESSED     = re.compile(rb"(\x1f\x8b\x08)|(\x78[\x01\x5e\x9c\xda])|(BZh[1-9])|(\xfd7zXZ\x00)")
 DECOMPRESSORS  = (lambda: zlib.decompressobj(31), zlib.decompressobj, bz2.BZ2Decompressor, lzma.LZMADecompressor)  # one per group of COMPRESSED
 SMALL_DIGITS   = "0123456789abcdefghijklmnopqrstuv"
+SHELL_WORD     = r"""(?:[^\s"'\\;&|<>()`]|\\.|"(?:[^"\\]|\\.)*"|'[^']*')+"""
+GIT            = re.compile(r"\bgit(?=\s)")
+GIT_OPTION     = re.compile(rf"\s+(?:(?P<flag>-[cC])\s+(?P<arg>{SHELL_WORD})|--?[a-zA-Z][-\w]*(?:={SHELL_WORD})?)")  # one before git's subcommand
+REWRITE_NOTE   = "outbound-firewall dropped this command's -c user.name/user.email options, as they repeat git's global config."
 
 
 class TooBigToInspect(Exception):
@@ -464,13 +480,58 @@ def first_blocked(tool_input: object, blocked: dict[str, tuple[str, str]]) -> st
 	return None
 
 
-def ask(reason: str) -> None:
-	"""Tell Claude Code to show the user a permission prompt giving `reason`."""
-	json.dump({"hookSpecificOutput": {
-		"hookEventName":            "PreToolUse",
-		"permissionDecision":       "ask",
-		"permissionDecisionReason": reason,
-	}}, sys.stdout)
+@functools.cache
+def git_identity() -> dict[str, str]:
+	"""Return the user.name and user.email that git's global config sets, keyed
+	by those names, leaving out any that's unset or unreadable."""
+	try:
+		result = subprocess.run(
+			["git", "config", "--global", "--includes", "--null", "--get-regexp", r"^user\.(name|email)$"],
+			capture_output=True, encoding="utf-8", errors="replace", timeout=10, check=False)  # exits 1 if neither is set
+	except (OSError, subprocess.SubprocessError):
+		return {}
+	return dict(item.split("\n", 1) for item in result.stdout.split("\0") if "\n" in item)
+
+
+def repeats_identity(setting: str) -> bool:
+	"""Whether the shell word `setting`, given to git after -c, sets user.name
+	or user.email to just what git_identity() has."""
+	try:
+		words = shlex.split(setting)
+	except ValueError:
+		return False
+	if len(words) != 1:
+		return False
+	key, _, value = words[0].partition("=")
+	return git_identity().get(key.lower()) == value
+
+
+def without_identity_flags(command: str) -> str:
+	"""Return the shell command `command` without each -c option in front of
+	a git subcommand that just repeats git's global identity."""
+	spans = []
+	pos   = 0
+	while git := GIT.search(command, pos):
+		pos = git.end()
+		while option := GIT_OPTION.match(command, pos):
+			if option["flag"] == "-c" and repeats_identity(option["arg"]):
+				spans.append(option.span())
+			pos = option.end()
+	for start, end in reversed(spans):
+		command = command[:start] + command[end:]
+	return command
+
+
+def answer(reason: str | None, tool_input: dict | None = None) -> None:
+	"""Tell Claude Code to show the user a permission prompt giving `reason`,
+	unless it's None, and to run the tool with `tool_input` in place of
+	Claude's, unless that's None."""
+	output = {"hookEventName": "PreToolUse"}
+	if reason is not None:
+		output |= {"permissionDecision": "ask", "permissionDecisionReason": reason}
+	if tool_input is not None:
+		output |= {"updatedInput": tool_input, "additionalContext": REWRITE_NOTE}
+	json.dump({"hookSpecificOutput": output}, sys.stdout)
 
 
 def main() -> None:
@@ -483,15 +544,21 @@ def main() -> None:
 	try:
 		blocked = load_blocked(config)
 	except (OSError, ValueError) as e:
-		ask(f"outbound-firewall can't use its config {config}: {e}")
+		answer(f"outbound-firewall can't use its config {config}: {e}")
 		return
+	tool_input = event["tool_input"]
+	if tool == "Bash" and isinstance(tool_input.get("command"), str):
+		tool_input = {**tool_input, "command": without_identity_flags(tool_input["command"])}
+	rewritten = tool_input if tool_input != event["tool_input"] else None
 	try:
-		found = first_blocked(event["tool_input"], blocked)
+		found = first_blocked(tool_input, blocked)
 	except TooBigToInspect:
-		ask(f"outbound-firewall: this {tool} call is too big to check (over {MAX_TEXT:,} characters, or decoding to over {MAX_INSPECT:,})")
+		answer(f"outbound-firewall: this {tool} call is too big to check (over {MAX_TEXT:,} characters, or decoding to over {MAX_INSPECT:,})", rewritten)
 		return
 	if found is not None:
-		ask(f"outbound-firewall: this {tool} call contains {found}, one of the strings it blocks")
+		answer(f"outbound-firewall: this {tool} call contains {found}, one of the strings it blocks", rewritten)
+	elif rewritten is not None:
+		answer(None, rewritten)
 
 
 if __name__ == "__main__":

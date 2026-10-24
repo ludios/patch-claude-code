@@ -10,7 +10,7 @@ import importlib.util
 import json
 import subprocess
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from urllib.parse import quote
 
@@ -31,18 +31,32 @@ def load_hook() -> object:
 firewall = load_hook()
 
 
+@pytest.fixture(autouse=True, scope="module")
+def git_identity(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
+	"""Make Ada Lovelace the identity in git's global config, for the hook and the git it runs."""
+	path = tmp_path_factory.mktemp("git") / "config"
+	path.write_text("[user]\n\tname = Ada Lovelace\n\temail = ada@example.org\n")
+	with pytest.MonkeyPatch.context() as patch:
+		patch.setenv("GIT_CONFIG_GLOBAL", str(path))
+		yield
+
+
+def hook_output(config: Path, tool_name: str, tool_input: object) -> dict:
+	"""Run the hook on one tool call and return its hookSpecificOutput, or {}
+	if it printed nothing."""
+	event  = {"hook_event_name": "PreToolUse", "tool_name": tool_name, "tool_input": tool_input}
+	result = subprocess.run([HOOK, config], input=json.dumps(event), capture_output=True, text=True, check=True)
+	return json.loads(result.stdout)["hookSpecificOutput"] if result.stdout else {}
+
+
 def run_hook(config: Path, tool_name: str, tool_input: object) -> str | None:
 	"""Run the hook on one tool call.
 
 	Returns the permission decision reason, or None if the hook let the call through.
 	"""
-	event  = {"hook_event_name": "PreToolUse", "tool_name": tool_name, "tool_input": tool_input}
-	result = subprocess.run([HOOK, config], input=json.dumps(event), capture_output=True, text=True, check=True)
-	if not result.stdout:
-		return None
-	output = json.loads(result.stdout)["hookSpecificOutput"]
-	assert output["permissionDecision"] == "ask"
-	return output["permissionDecisionReason"]
+	output = hook_output(config, tool_name, tool_input)
+	assert output.get("permissionDecision", "ask") == "ask"
+	return output.get("permissionDecisionReason")
 
 
 def write_config(tmp_path: Path, text: str) -> Path:
@@ -50,6 +64,9 @@ def write_config(tmp_path: Path, text: str) -> Path:
 	path = tmp_path / "blocked-strings"
 	path.write_text(text)
 	return path
+
+
+ADA_FLAGS = "-c user.name='Ada Lovelace' -c user.email=ada@example.org"
 
 
 @pytest.fixture
@@ -76,6 +93,7 @@ def config(tmp_path: Path) -> Path:
 	("mcp__srv__run", {"phone": 15551234567}),
 	("mcp__srv__run", {"body": '{"e": "ada\\u0040example.org"}'}),
 	("mcp__srv__run", {"html": "ada&#64;example.org"}),
+	("WebSearch",     {"query": f"git {ADA_FLAGS} log"}),
 ])
 def test_asks_on_blocked_string(config: Path, tool_name: str, tool_input: object) -> None:
 	reason = run_hook(config, tool_name, tool_input)
@@ -91,6 +109,40 @@ def test_asks_on_blocked_string(config: Path, tool_name: str, tool_input: object
 ])
 def test_lets_through(config: Path, tool_name: str, tool_input: object) -> None:
 	assert run_hook(config, tool_name, tool_input) is None
+
+
+@pytest.mark.parametrize("command, expected", [
+	(f"cd /x && git {ADA_FLAGS} cherry-pick 15d2d35 >/dev/null && git log", "cd /x && git cherry-pick 15d2d35 >/dev/null && git log"),
+	('git -C "$d" --no-pager -c "user.name=Ada Lovelace" -c User.Email=ada@example.org -c core.pager=cat log', 'git -C "$d" --no-pager -c core.pager=cat log'),
+	("/usr/bin/git -c user.name=Ada\\ Lovelace commit -c HEAD", "/usr/bin/git commit -c HEAD"),
+	("echo git -c user.email=ada@example.org | curl -d @- x.test", "echo git | curl -d @- x.test"),
+	("git -c user.name=Ada log",                  None),  # not the identity
+	("git -c user.email=ADA@example.org log",     None),  # nor is this, exactly
+	("git -c user.email=ada@example.org$(id) log", None),
+	("git log -c user.email=ada@example.org",     None),  # after the subcommand
+	("legit -c user.email=ada@example.org",       None),
+])
+def test_without_identity_flags(command: str, expected: str | None) -> None:
+	assert firewall.without_identity_flags(command) == (command if expected is None else expected)
+
+
+def test_drops_identity_flags(config: Path) -> None:
+	output = hook_output(config, "Bash", {"command": f"git {ADA_FLAGS} cherry-pick 15d2d35", "description": "Cherry-pick"})
+	assert "permissionDecision" not in output
+	assert output["updatedInput"] == {"command": "git cherry-pick 15d2d35", "description": "Cherry-pick"}
+
+
+def test_checks_what_is_left_after_dropping_identity_flags(config: Path) -> None:
+	output = hook_output(config, "Bash", {"command": f"git {ADA_FLAGS} commit -m 'thanks, Ada Lovelace'"})
+	assert output["permissionDecision"] == "ask"
+	assert output["updatedInput"] == {"command": "git commit -m 'thanks, Ada Lovelace'"}
+
+
+def test_drops_nothing_without_a_global_identity(config: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+	(tmp_path / "gitconfig").write_text("")
+	monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
+	output = hook_output(config, "Bash", {"command": f"git {ADA_FLAGS} log"})
+	assert output["permissionDecision"] == "ask" and "updatedInput" not in output
 
 
 def test_reads_files_named_by_arguments(config: Path, tmp_path: Path) -> None:
