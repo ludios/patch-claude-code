@@ -1,55 +1,100 @@
 #!/usr/bin/env python3
 # Model-output: Claude Opus 5.5
 r"""Claude Code PreToolUse hook: make the user confirm any tool call that could
-reach the network and carries one of their private strings (name, email, ...).
+reach the network and carries one of their private strings (name, email, ...),
+plain or encoded the ways a prompt injection might ask for.
 
 The strings live one per line in a config file kept outside this repo
 (default ~/.config/claude-outbound-firewall/blocked-strings); anything after
 a # is a comment. Only letters and digits are compared, ignoring case and
-accents, in both the raw and the percent-decoded text, so "Ada+Lovelace",
-'ada\ lovelace', "ada-lovelace" and "ada%40example.org" all match. Each
-string needs at least MIN_ENTRY letters and digits, lest it match unrelated
-text.
+accents, so "Ada+Lovelace", 'ada\ lovelace' and "ada-lovelace" all match
+"Ada Lovelace"; an email also matches with its @ and dots spelled out ("ada
+at example dot org"). Each string needs at least MIN_ENTRY letters and
+digits, lest it match unrelated text or decoding noise.
 
 All the strings and numbers in the tool call's input are checked as one
 text, so a name split across fields ({"first": "Ada", "last": "Lovelace"})
 still matches. So is the start of any file an argument names by absolute
 path, as upload tools take.
 
+That text is also decoded, up to MAX_LAYERS decodings deep in any order,
+with: reversal, rot13, percent-decoding, HTML entities, \x \u and octal
+escapes, rows of character codes (binary, octal, decimal or hex), base2,
+base8, base16, base32 (RFC 4648, hex, Crockford, z-base-32), base36, base45,
+base58 (Bitcoin, Flickr), base62, base64 (standard, URL-safe), base85
+(Ascii85, RFC 1924, Z85), and gzip, zlib, bzip2 or xz inside any of those.
+Every decoding is searched for each string as written, reversed, shifted by
+any rot-N, or atbash'd. A decoding may garble the last few characters it
+holds (its last group runs into whatever follows), so only the first
+max(MIN_ENTRY, length - TAIL_SLACK) letters and digits of a string that
+wasn't reversed have to match.
+
 This inspects what Claude asks a tool to do, not the bytes that leave the
-machine: a Bash command that reads a string from a file at run time, or
-encodes it, gets through. The tools in LOCAL_TOOLS are not inspected, since
-they stay on this machine.
+machine: a Bash command that reads a string from a file at run time, or an
+encoding not listed above (XOR, a made-up alphabet, a string split up within
+an argument, a base-N run that is an ordinary word, ...), gets through.
 
 On a match the hook answers "ask", so the user gets a permission prompt; in a
 `claude -p` run nobody can answer it, so the call is refused. A missing or
-empty config asks too, and with "onFailure": "block" a crash or timeout
-blocks the call, so the firewall never silently fails open.
+empty config asks too, as does a tool call too big to check (over MAX_TEXT
+characters, files included, or decoding to over MAX_INSPECT); and with
+"onFailure": "block" a crash or timeout blocks the call. So the firewall
+never silently fails open.
 
-Install by adding to ~/.claude/settings.json:
+Install by adding to ~/.claude/settings.json the following. The matcher
+leaves out the tools that stay on this machine, which also keeps them usable
+for fixing this file should it break.
 
-	"hooks": {"PreToolUse": [{"matcher": "*", "hooks": [{"type": "command",
-		"command": "/path/to/outbound-firewall", "onFailure": "block"}]}]}
+	"hooks": {"PreToolUse": [{
+		"matcher": "^(?!(Read|Edit|Write|NotebookEdit|Grep|Glob|LSP|AskUserQuestion|ToolSearch|TodoWrite|TaskCreate|TaskUpdate|TaskStop|EnterPlanMode|ExitPlanMode)$)",
+		"hooks": [{"type": "command", "command": "/path/to/outbound-firewall", "onFailure": "block"}]
+	}]}
 
 Usage: outbound-firewall [CONFIG]   (reads the hook's JSON input on stdin)
 """
 
+import binascii
+import bz2
+import codecs
+import html
 import json
+import lzma
+import math
 import re
 import sys
 import unicodedata
-from collections.abc import Iterator
+import zlib
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from urllib.parse import unquote_plus
 
 DEFAULT_CONFIG = Path.home() / ".config" / "claude-outbound-firewall" / "blocked-strings"
-LOCAL_TOOLS    = frozenset({
-	"Read", "Edit", "Write", "NotebookEdit", "Grep", "Glob", "LSP", "AskUserQuestion", "ToolSearch",
-	"TodoWrite", "TaskCreate", "TaskUpdate", "TaskStop", "EnterPlanMode", "ExitPlanMode",
-})
-MIN_ENTRY      = 6          # letters and digits a blocked string needs
-MAX_FILE       = 1_000_000  # bytes to read from a file an argument names
+MAX_LAYERS     = 3           # decodings stacked, e.g. rot13 of base64 of reversed
+MAX_TEXT       = 100_000     # characters of tool input (and files it names) to decode at all
+MAX_INSPECT    = 20_000_000  # characters of decoded text to search before giving up
+MAX_INFLATE    = 1_000_000   # bytes to decompress from one compressed stream
+MIN_ENTRY      = 8           # letters and digits a blocked string needs, and that always have to match
+TAIL_SLACK     = 4           # trailing letters and digits a decoding may garble
 NOT_COMPARED   = re.compile(r"[\W_]+")
+UNREADABLE     = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\ufffd]+")
+MAYBE_READABLE = re.compile(rb"(?:[\x00\t\n\r\x20-\x7e]|[\xc2-\xdf][\x80-\xbf]|[\xe0-\xef][\x80-\xbf]{2}|[\xf0-\xf4][\x80-\xbf]{3})"
+                            rb"{%d,}" % MIN_ENTRY)  # bytes that might decode to a readable run (see readable_runs)
+ESCAPE         = re.compile(r"\\(?:x([0-9a-f]{2})|u\{([0-9a-f]{1,6})\}|u([0-9a-f]{4})|U([0-9a-f]{8})|([0-7]{1,3}))", re.IGNORECASE)
+WORD           = re.compile(r"[A-Z]?[a-z]+")  # what a run of digits that is likely prose, not a code, looks like
+CODE           = r"(?:u\+?|0[box]|x)?([0-9a-f]+)"  # a character code, as in "105", "0x69", "U+0069" or the "x69" of "\x69"
+CODES_IN_A_ROW = re.compile(rf"(?:{CODE}[^0-9a-z]{{1,3}}){{{MIN_ENTRY - 1},}}{CODE}", re.IGNORECASE)
+CODE_WORD      = re.compile(CODE, re.IGNORECASE)
+LETTERS        = "abcdefghijklmnopqrstuvwxyz"
+ROT            = [str.maketrans(LETTERS, LETTERS[n:] + LETTERS[:n]) for n in range(26)]
+ATBASH         = str.maketrans(LETTERS, LETTERS[::-1])
+COMPRESSED     = re.compile(rb"(\x1f\x8b\x08)|(\x78[\x01\x5e\x9c\xda])|(BZh[1-9])|(\xfd7zXZ\x00)")
+DECOMPRESSORS  = (lambda: zlib.decompressobj(31), zlib.decompressobj, bz2.BZ2Decompressor, lzma.LZMADecompressor)  # one per group of COMPRESSED
+SMALL_DIGITS   = "0123456789abcdefghijklmnopqrstuv"
+
+
+class TooBigToInspect(Exception):
+	"""The tool call holds more than MAX_TEXT characters, or decodes to more
+	than MAX_INSPECT."""
 
 
 def normalize(text: str) -> str:
@@ -57,24 +102,312 @@ def normalize(text: str) -> str:
 	return NOT_COMPARED.sub("", unicodedata.normalize("NFKD", text).casefold())
 
 
-def load_blocked(path: Path) -> dict[str, str]:
+def keys_for(entry: str) -> dict[str, str]:
+	"""Return the forms of the blocked string `entry` to search decoded text for.
+
+	Maps each form (normalized and, unless reversed, cut to the letters and
+	digits that have to match) to how it was derived from `entry`. A reversed
+	form is kept whole, since cutting it would leave the end of `entry`, such
+	as the domain of an email, which often shows up on its own.
+	"""
+	spellings = {"": entry, "@ and . spelled out": entry.replace("@", " at ").replace(".", " dot ")}
+	keys      = {}
+	for spelling, text in spellings.items():
+		plain = normalize(text)
+		for direction, ordered in (("", plain), ("reversed", plain[::-1])):
+			ciphers = {f"rot{n}" if n else "": ordered.translate(table) for n, table in enumerate(ROT)}
+			ciphers["atbash"] = ordered.translate(ATBASH)
+			for cipher, form in ciphers.items():
+				how = ", ".join(filter(None, (spelling, direction, cipher))) or "as written"
+				keys.setdefault(form if direction else form[:max(MIN_ENTRY, len(form) - TAIL_SLACK)], how)
+	return keys
+
+
+def load_blocked(path: Path) -> dict[str, tuple[str, str]]:
 	"""Read the config at `path`.
 
-	Returns a map from each blocked string's normalized form to the string as
-	written in the config.
+	Returns a map from each form to search for (see keys_for) to the blocked
+	string as written in the config and how the form was derived from it.
 	"""
 	blocked = {}
 	for line in path.read_text(encoding="utf-8-sig").splitlines():
 		entry = line.partition("#")[0].strip()
 		if not entry:
 			continue
-		key = normalize(entry)
-		if len(key) < MIN_ENTRY:
-			raise ValueError(f"{entry!r} has fewer than {MIN_ENTRY} letters and digits, so it would match unrelated text")
-		blocked[key] = entry
+		if len(normalize(entry)) < MIN_ENTRY:
+			raise ValueError(f"{entry!r} has fewer than {MIN_ENTRY} letters and digits, so it would match unrelated text and decoding noise")
+		for key, how in keys_for(entry).items():
+			blocked.setdefault(key, (entry, how))
 	if not blocked:
 		raise ValueError("it lists no strings")
 	return blocked
+
+
+def digit_values(alphabet: str, fold_case: bool) -> dict[str, int]:
+	"""Map each digit of `alphabet` (listed in order of value) to its value,
+	and, if `fold_case`, each digit's other case too."""
+	values = {}
+	for value, digit in enumerate(alphabet):
+		for c in {digit, digit.swapcase()} if fold_case else {digit}:
+			assert values.setdefault(c, value) == value, f"{c!r} would be two digits"
+	return values
+
+
+def digit_runs(values: dict[str, int], shortest: int) -> re.Pattern[str]:
+	"""Return a pattern for runs of at least `shortest` of the digits in `values`."""
+	return re.compile(f"[{''.join(map(re.escape, values))}]{{{shortest},}}")
+
+
+def number(digits: list[int], base: int) -> int:
+	"""Return the number that `digits` (most significant first) write in
+	`base`; splitting in halves keeps long runs fast."""
+	if len(digits) <= 64:
+		value = 0
+		for digit in digits:
+			value = value * base + digit
+		return value
+	half = len(digits) // 2
+	return number(digits[:half], base) * base ** (len(digits) - half) + number(digits[half:], base)
+
+
+def small_base_digits(values: dict[str, int]) -> tuple[int, dict[int, str]]:
+	"""For a code of 2**k digits, whose `values` digit_values gave, pick the
+	biggest base 2**g <= 32 with g dividing k, which int() reads, and spell
+	each digit as k/g digits of it.
+
+	Returns that base and a str.translate table from the digits to the spellings.
+	"""
+	bits = (max(values.values()) + 1).bit_length() - 1
+	g    = next(g for g in (5, 4, 3, 2, 1) if bits % g == 0)
+	per  = bits // g
+	return 1 << g, str.maketrans({
+		c: "".join(SMALL_DIGITS[value >> g * (per - 1 - i) & (1 << g) - 1] for i in range(per))
+		for c, value in values.items()
+	})
+
+
+class GroupCode:
+	"""A base-N code that writes each `nbytes` bytes as a group of `chars`
+	digits: base64, base32, base85 and the like."""
+
+	def __init__(
+		self, name: str, alphabet: str, chars: int, nbytes: int, *,
+		fold_case: bool = False, little_endian: bool = False, fast: Callable[[str], bytes] | None = None,
+	) -> None:
+		"""`alphabet` lists the digits in order of value; with `fold_case`, the
+		digits' other case is accepted too. `little_endian` codes write the
+		least significant digit of each group first. `fast`, if given, decodes
+		a run faster but raises binascii.Error where decode_groups would put
+		an invalid byte."""
+		assert len(alphabet) ** chars >= 256 ** nbytes, f"{name}: {chars} digits can't hold {nbytes} bytes"
+		self.name          = name
+		self.base          = len(alphabet)
+		self.chars         = chars
+		self.nbytes        = nbytes
+		self.little_endian = little_endian
+		self.fast          = fast
+		self.values        = digit_values(alphabet, fold_case)
+		self.skips_words   = not fold_case  # a case-sensitive code all but never writes a word, though a lowercased one may
+		self.runs          = digit_runs(self.values, math.ceil(MIN_ENTRY * chars / nbytes))
+		self.bits          = self.base.bit_length() - 1 if self.base & self.base - 1 == 0 else None
+		if self.bits is not None:
+			assert chars * self.bits == 8 * nbytes, f"{name}: {chars} digits of {self.bits} bits aren't {nbytes} bytes"
+			self.small_base, self.as_small_digits = small_base_digits(self.values)
+
+	def decode(self, text: str) -> Iterator[bytes]:
+		"""Decode each run of digits in `text` (unless it's an ordinary word and
+		the code is case-sensitive) from each of its first `chars` positions,
+		since what was encoded may start anywhere in the run."""
+		for run in self.runs.findall(text):
+			if self.skips_words and WORD.fullmatch(run):
+				continue
+			if self.bits is not None:
+				yield from self.decode_bits(run)
+				continue
+			for start in range(self.chars):
+				part = run[start:]
+				if len(part) % self.chars == 1:
+					part = part[:-1]  # holds no whole byte, and fast decoders reject it
+				yield self.decode_run(part)
+
+	def decode_run(self, run: str) -> bytes:
+		"""Decode `run` with the fast decoder if there is one and it can,
+		otherwise with decode_groups."""
+		if self.fast is not None:
+			try:
+				return self.fast(run)
+			except binascii.Error:
+				pass
+		return self.decode_groups([self.values[c] for c in run])
+
+	def decode_bits(self, run: str) -> Iterator[bytes]:
+		"""Decode `run` (of a code whose digits are whole bits) as one bit string
+		from each of its first `chars` digits, dropping a last part byte."""
+		value = int(run.translate(self.as_small_digits), self.small_base)
+		for start in range(self.chars):
+			left = (len(run) - start) * self.bits
+			yield ((value & (1 << left) - 1) >> left % 8).to_bytes(left // 8)
+
+	def decode_groups(self, digits: list[int]) -> bytes:
+		"""Decode `digits` group by group. A short last group holds fewer bytes,
+		and a group too big for its bytes becomes an invalid byte."""
+		base, chars, nbytes = self.base, self.chars, self.nbytes
+		decoded = bytearray()
+		for i in range(0, len(digits), chars):
+			group = digits[i:i + chars]
+			size  = nbytes * len(group) // chars
+			if self.little_endian:
+				group.reverse()
+			else:
+				group += [base - 1] * (chars - len(group))
+			value = 0
+			for digit in group:
+				value = value * base + digit
+			if not self.little_endian:
+				value >>= 8 * (nbytes - size)
+			decoded += value.to_bytes(size) if value < 256 ** size else b"\xff"
+		return bytes(decoded)
+
+
+class NumberCode:
+	"""A base-N code that writes all the bytes as one big number: base58,
+	base62 and the like."""
+
+	def __init__(self, name: str, alphabet: str, fold_case: bool = False) -> None:
+		"""`alphabet` lists the digits in order of value; with `fold_case`, the
+		digits' other case is accepted too."""
+		self.name        = name
+		self.base        = len(alphabet)
+		self.values      = digit_values(alphabet, fold_case)
+		self.skips_words = not fold_case  # a case-sensitive code all but never writes a word, though a lowercased one may
+		self.runs        = digit_runs(self.values, math.ceil(MIN_ENTRY * 8 / math.log2(self.base)))
+
+	def decode(self, text: str) -> Iterator[bytes]:
+		"""Decode each run of digits in `text`, unless it's an ordinary word and
+		the code is case-sensitive."""
+		for run in self.runs.findall(text):
+			if self.skips_words and WORD.fullmatch(run):
+				continue
+			value = number([self.values[c] for c in run], self.base)
+			yield value.to_bytes((value.bit_length() + 7) // 8)
+
+
+BASE64_DIGITS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+CODES = (
+	GroupCode("base2",            "01", 8, 1),
+	GroupCode("base8",            "01234567", 8, 3),
+	GroupCode("base16",           "0123456789ABCDEF", 2, 1, fold_case=True),
+	GroupCode("base32",           "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567", 8, 5, fold_case=True),
+	GroupCode("base32hex",        "0123456789ABCDEFGHIJKLMNOPQRSTUV", 8, 5, fold_case=True),
+	GroupCode("Crockford base32", "0123456789ABCDEFGHJKMNPQRSTVWXYZ", 8, 5, fold_case=True),
+	GroupCode("z-base-32",        "ybndrfg8ejkmcpqxot1uwisza345h769", 8, 5, fold_case=True),
+	GroupCode("base45",           "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:", 3, 2, little_endian=True),
+	GroupCode("base64",           BASE64_DIGITS + "+/", 4, 3),
+	GroupCode("base64url",        BASE64_DIGITS + "-_", 4, 3),
+	GroupCode("Ascii85",          "".join(map(chr, range(33, 118))), 5, 4, fast=binascii.a2b_ascii85),
+	GroupCode("base85",           binascii.BASE85_ALPHABET.decode(), 5, 4, fast=binascii.a2b_base85),
+	GroupCode("Z85",              binascii.Z85_ALPHABET.decode(), 5, 4, fast=lambda run: binascii.a2b_base85(run, alphabet=binascii.Z85_ALPHABET)),
+	NumberCode("base10",          "0123456789"),
+	NumberCode("base36",          "0123456789abcdefghijklmnopqrstuvwxyz", fold_case=True),
+	NumberCode("base58",          "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"),
+	NumberCode("Flickr base58",   "123456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ"),
+	NumberCode("base62",          "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"),
+	NumberCode("base62 (a-z first)", "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"),
+)
+
+
+def inflate(data: bytes) -> Iterator[bytes]:
+	"""Yield what each gzip, zlib, bzip2 or xz stream starting somewhere in
+	`data` decompresses to, as far as it gets."""
+	for match in COMPRESSED.finditer(data):
+		try:
+			yield DECOMPRESSORS[match.lastindex - 1]().decompress(data[match.start():], MAX_INFLATE)
+		except (zlib.error, OSError, lzma.LZMAError):
+			pass
+
+
+def readable_runs(data: bytes) -> Iterator[str]:
+	"""Yield the readable runs of text (as UTF-8, or UTF-16 once NULs are
+	dropped), with at least MIN_ENTRY letters and digits, in `data` and in the
+	compressed streams it holds."""
+	for blob in (data, *inflate(data)):
+		if not MAYBE_READABLE.search(blob):
+			continue
+		text = blob.decode("utf-8", "replace").replace("\x00", "")
+		yield from (run for run in UNREADABLE.split(text) if len(run) >= MIN_ENTRY and len(normalize(run)) >= MIN_ENTRY)
+
+
+def character(code: int) -> str:
+	"""Return the character with the code point `code`, or U+FFFD if there is none."""
+	return chr(code) if 0 < code < 0x110000 and not 0xd800 <= code < 0xe000 else "\ufffd"
+
+
+def unescape(text: str) -> Iterator[str]:
+	r"""Yield `text` with its \xHH, \uHHHH, \u{H...}, \UHHHHHHHH and octal
+	escapes replaced by the characters they stand for."""
+	yield ESCAPE.sub(lambda m: character(int(m[5], 8) if m[5] else int(next(filter(None, m.groups())), 16)), text)
+
+
+def char_codes(text: str) -> Iterator[str]:
+	r"""Read each row of at least MIN_ENTRY character codes in `text` ("105 118
+	...", "0x69,0x76,...", "\x69\x76...", "&#105;&#118;...", "U+0069 U+0076
+	...") in base 2, 8, 10 and 16, yielding one text per base with the rows
+	apart. A code that isn't one in that base reads as U+FFFD."""
+	rows = [CODE_WORD.findall(row[0]) for row in CODES_IN_A_ROW.finditer(text)]
+	if not rows:
+		return
+	for base in (2, 8, 10, 16):
+		chars = []
+		for row in rows:
+			for code in row:
+				try:
+					chars.append(character(int(code, base)))
+				except ValueError:
+					chars.append("\ufffd")
+			chars.append("\ufffd")
+		yield "".join(chars)
+
+
+def decoder(code: GroupCode | NumberCode) -> Callable[[str], Iterator[str]]:
+	"""Return a function yielding the readable runs that `code` decodes a text to."""
+	return lambda text: (run for data in code.decode(text) for run in readable_runs(data))
+
+
+TRANSFORMS: tuple[tuple[str, Callable[[str], Iterator[str]]], ...] = (
+	("reverse",        lambda text: iter((text[::-1],))),
+	("rot13",          lambda text: iter((codecs.encode(text, "rot13"),))),
+	("percent-decode", lambda text: iter((unquote_plus(text),))),
+	("HTML-unescape",  lambda text: iter((html.unescape(text),))),
+	("unescape",       unescape),
+	("char codes",     char_codes),
+	*((code.name, decoder(code)) for code in CODES),
+)
+
+
+def decodings(text: str) -> Iterator[tuple[str, tuple[str, ...]]]:
+	"""Yield `text`, then everything it decodes to through up to MAX_LAYERS
+	TRANSFORMS, each with the names of the transforms that led to it.
+
+	Raises TooBigToInspect once the decodings add up to MAX_INSPECT characters.
+	"""
+	seen      = {text}
+	layer     = [(text, ())]
+	inspected = len(text)
+	yield text, ()
+	for _ in range(MAX_LAYERS):
+		next_layer = []
+		for view, path in layer:
+			for name, transform in TRANSFORMS:
+				for decoded in transform(view):
+					if len(decoded) < MIN_ENTRY or decoded in seen:
+						continue
+					inspected += len(decoded)
+					if inspected > MAX_INSPECT:
+						raise TooBigToInspect
+					seen.add(decoded)
+					next_layer.append((decoded, path + (name,)))
+					yield decoded, path + (name,)
+		layer = next_layer
 
 
 def strings_in(value: object, keys: bool = False) -> Iterator[str]:
@@ -95,8 +428,9 @@ def strings_in(value: object, keys: bool = False) -> Iterator[str]:
 
 
 def file_start(arg: str) -> str | None:
-	"""Return the first MAX_FILE bytes, as text, of the file `arg` names by
-	absolute path, or None if `arg` names no readable file."""
+	"""Return the start, as text, of the file `arg` names by absolute path
+	(enough to tell it's longer than MAX_TEXT), or None if `arg` names no
+	readable file."""
 	if not arg.startswith(("/", "~/")) or "\n" in arg:
 		return None
 	path = Path(arg).expanduser()
@@ -104,24 +438,29 @@ def file_start(arg: str) -> str | None:
 		if not path.is_file():  # nor a FIFO or device, which could block or never end
 			return None
 		with path.open("rb") as f:
-			return f.read(MAX_FILE).decode("utf-8", "replace")
+			return f.read(MAX_TEXT + 1).decode("utf-8", "replace")
 	except (OSError, ValueError):
 		return None
 
 
-def first_blocked(tool_input: object, blocked: dict[str, str]) -> str | None:
-	"""Return the first blocked string (as written in the config) found in
-	`tool_input`, or None if there is none.
+def first_blocked(tool_input: object, blocked: dict[str, tuple[str, str]]) -> str | None:
+	"""Return a description of the first blocked string found in `tool_input`,
+	or None if there is none.
 
-	`blocked` maps normalized forms to strings as written, as load_blocked
-	returns.
+	`blocked` maps forms to search for to the blocked string as written and how
+	the form was derived, as load_blocked returns. Raises TooBigToInspect if
+	the tool input is, or decodes to, too much text.
 	"""
-	args  = [*strings_in(tool_input), *strings_in(tool_input, keys=True)]
-	text  = "\x00".join(args + [content for content in map(file_start, args) if content is not None])
-	forms = (normalize(text), normalize(unquote_plus(text)))
-	for key, entry in blocked.items():
-		if any(key in form for form in forms):
-			return entry
+	args = [*strings_in(tool_input), *strings_in(tool_input, keys=True)]
+	text = "\x00".join(args + [content for content in map(file_start, args) if content is not None])
+	if len(text) > MAX_TEXT:
+		raise TooBigToInspect
+	for decoded, path in decodings(text):
+		form = normalize(decoded)
+		for key, (entry, how) in blocked.items():
+			if key in form:
+				steps = f" after {' → '.join(path)}" if path else ""
+				return f"{entry!r} ({how}){steps}"
 	return None
 
 
@@ -141,17 +480,18 @@ def main() -> None:
 	event  = json.load(sys.stdin)
 	assert event["hook_event_name"] == "PreToolUse", f"wired to {event['hook_event_name']}, not PreToolUse"
 	tool = event["tool_name"]
-	if tool in LOCAL_TOOLS:
-		return
-
 	try:
 		blocked = load_blocked(config)
 	except (OSError, ValueError) as e:
 		ask(f"outbound-firewall can't use its config {config}: {e}")
 		return
-	entry = first_blocked(event["tool_input"], blocked)
-	if entry is not None:
-		ask(f"outbound-firewall: this {tool} call contains {entry!r}, one of the strings it blocks")
+	try:
+		found = first_blocked(event["tool_input"], blocked)
+	except TooBigToInspect:
+		ask(f"outbound-firewall: this {tool} call is too big to check (over {MAX_TEXT:,} characters, or decoding to over {MAX_INSPECT:,})")
+		return
+	if found is not None:
+		ask(f"outbound-firewall: this {tool} call contains {found}, one of the strings it blocks")
 
 
 if __name__ == "__main__":

