@@ -29,8 +29,9 @@ surfaces hardcode their own sizes besides. This script patches:
   resources/native-binary/claude
                      - on NixOS only: point its ELF interpreter at the
                        system's dynamic loader (taken from
-                       /run/current-system/sw/bin/sh), since the
-                       /lib64/ld-linux-*.so it expects does not exist there
+                       /run/current-system/sw/bin/sh), since the FHS loader
+                       it expects (e.g. /lib64/ld-linux-x86-64.so.2) does
+                       not exist there
 
 There is no load-time integrity check on these files (VS Code verifies
 extension signatures only at install time), so editing them in place is
@@ -143,13 +144,13 @@ def extension_dirs():
 	return dirs
 
 
-def patchelf(*args):
+def patchelf(*args: str | Path) -> str:
 	"""Run patchelf and return its stripped stdout."""
 	result = subprocess.run(["patchelf", *map(str, args)], check=True, stdout=subprocess.PIPE, text=True)
 	return result.stdout.strip()
 
 
-def nixos_interpreter():
+def nixos_interpreter() -> str | None:
 	"""Return the dynamic loader that ELF binaries need on NixOS, or None
 	when not running on NixOS."""
 	if not Path("/etc/NIXOS").exists():
@@ -157,11 +158,13 @@ def nixos_interpreter():
 	return patchelf("--print-interpreter", NIXOS_LOADER_DONOR)
 
 
-def patch_interpreter(path, interpreter):
-	"""Set the ELF interpreter of `path` to `interpreter`, unless it already
-	is (patchelf rewrites the whole file, and fails on a running binary).
-	Re-running after a NixOS upgrade moves it to the new loader. Returns
-	True when the interpreter ends up set."""
+def patch_interpreter(path: Path, interpreter: str) -> bool:
+	"""Set the ELF interpreter of the binary at `path` to the loader path
+	`interpreter`, unless it already is, which saves rewriting the ~300 MB
+	file. The patched copy is renamed over the original, so a running binary
+	(which can't be opened for writing) gets patched too, and an interrupted
+	run leaves no half-written binary. Re-running after a NixOS upgrade moves
+	it to the new loader. Returns True when the interpreter ends up set."""
 	if not path.is_file():
 		print(f"  {path.name}: missing, skipped")
 		return False
@@ -169,7 +172,9 @@ def patch_interpreter(path, interpreter):
 	if current == interpreter:
 		print(f"  {path.name}: interpreter already {interpreter}")
 	else:
-		patchelf("--set-interpreter", interpreter, path)
+		patched = path.with_name(path.name + ".patching")
+		patchelf("--set-interpreter", interpreter, "--output", patched, path)
+		patched.replace(path)
 		print(f"  {path.name}: interpreter {current} -> {interpreter}")
 	return True
 
