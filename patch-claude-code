@@ -32,7 +32,7 @@ as the input on every run, so re-running (even with newly added patterns) is
 idempotent. Re-run after every extension update, then reload the VS Code
 window; run with --undo to restore the originals.
 
-Usage: patch-claude-code-font [--undo]
+Usage: patch-claude-code [--undo]
 """
 
 import re
@@ -171,7 +171,7 @@ def undo_dir(ext_dir):
 def main():
 	args = sys.argv[1:]
 	undo = "--undo" in args
-	assert all(a == "--undo" for a in args), "usage: patch-claude-code-font [--undo]"
+	assert all(a == "--undo" for a in args), "usage: patch-claude-code [--undo]"
 
 	dirs = extension_dirs()
 	newest_ok = False
