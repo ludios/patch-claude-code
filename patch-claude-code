@@ -15,9 +15,10 @@ surfaces hardcode their own sizes besides. This script patches:
   extension.js       - source that override (and its change listener) from
                        editor.* instead of chat.editor.*, making the two
                        variables trustworthy everywhere in the webview;
-                       launch the CLI with a modelPicker setting listing
-                       MODEL_LINEUP, and make the model rows it answers with
-                       name-only, re-adding Mythos when the CLI hides it
+                       launch the CLI with MODEL_LINEUP as its model picker
+                       and DEFAULT_MODEL as its default model, and put the
+                       model rows it answers with in lineup order, name-only,
+                       re-adding Mythos when the CLI hides it
   webview/index.css  - point --monaco-monospace-font at the editor font, and
                        give every monospace rule with a smaller hardcoded size
                        (tool IN/OUT rows, header filenames, markdown inline
@@ -82,18 +83,23 @@ SMALL_SIZE = r"(?:\.\d+em|(?:1[0-3]|[1-9])px|\d{1,2}(?:\.\d+)?%|inherit)"
 MONO_FAMILY = r"var\(--app-(?:monospace-font-family|font-family-mono)\)"
 
 # The model picker's rows, in order, as (model ID, label).
-MYTHOS = ("claude-mythos-5-1", "Mythos 5.1")
+MYTHOS = "claude-mythos-5-1"
 MODEL_LINEUP = [
-	MYTHOS,
+	(MYTHOS,             "Mythos 5.1"),
 	("claude-fable-5-1", "Fable 5.1"),
 	("claude-opus-5-5",  "Opus 5.5"),
 	("claude-opus-4-8",  "Opus 4.8"),
 	("claude-opus-4-6",  "Opus 4.6"),
 ]
-# The row a re-added Mythos row copies its capabilities (effort levels,
-# adaptive thinking, no fast mode, ...) from; the CLI's model catalog gives
-# the two the same ones.
-MYTHOS_TEMPLATE = "claude-fable-5-1"
+# The model a session uses when no model is set, instead of the CLI's
+# account-dependent default.
+DEFAULT_MODEL = "claude-opus-5-5"
+# {model ID: model ID} of lineup rows built when the CLI leaves them out,
+# and the row each copies its capabilities (effort levels, adaptive
+# thinking, no fast mode, ...) from; the CLI's model catalog gives each
+# pair the same ones. The CLI hides Mythos whenever it lacks the server's
+# model list.
+STAND_INS = {MYTHOS: "claude-fable-5-1"}
 
 
 def js_literal(value: object) -> str:
@@ -104,35 +110,38 @@ def js_literal(value: object) -> str:
 	return literal
 
 
-def model_picker_settings(lineup: list[tuple[str, str]]) -> str:
-	"""Return, as a JS literal, the CLI settings whose modelPicker replaces
-	the picker's built-in rows with `lineup`, (model ID, label) pairs in
-	order. The CLI keeps its Default row in front of them, drops the rows
-	the account can't use (and Mythos whenever it lacks the server's model
-	list), and gives a row without a description "Custom model (<ID>)"."""
+def cli_settings(lineup: list[tuple[str, str]]) -> str:
+	"""Return, as a JS literal, the CLI settings that make DEFAULT_MODEL the
+	default (an explicitly set model still wins) and whose modelPicker
+	replaces the picker's built-in rows with `lineup`, (model ID, label)
+	pairs in order. The CLI keeps its Default row in front of them, drops
+	the rows the account can't use (and Mythos whenever it lacks the
+	server's model list), appends the session's model when it is not among
+	them, and describes each lineup row as "Custom model (<ID>)"."""
 	options = [{"model": model, "label": label} for model, label in lineup]
-	return js_literal({"modelPicker": {"replaceBuiltInOptions": True, "options": options}})
+	return js_literal({
+		"env":         {"ANTHROPIC_DEFAULT_MODEL": DEFAULT_MODEL},
+		"modelPicker": {"replaceBuiltInOptions": True, "options": options},
+	})
 
 
-def models_fixup(mythos: bool) -> str:
+def models_fixup(lineup: list[tuple[str, str]]) -> str:
 	"""Return a JS function expression mapping the CLI's initialize response
-	to one whose model rows have no description (the picker then shows just
-	their names), except the Default row's. When `mythos`, it also puts a
-	Mythos row right after the Default row if the CLI left it out, copied
-	from the MYTHOS_TEMPLATE row."""
-	assert MODEL_LINEUP[0] == MYTHOS, "the Mythos row is re-added first"
-	model, label = MYTHOS
-	readd_mythos = (
-		f"let t=m.find((x)=>x.resolvedModel==={js_literal(MYTHOS_TEMPLATE)});"
-		f"if(t&&!m.some((x)=>x.resolvedModel==={js_literal(model)}))"
-		f'm=[...m.filter((x)=>x.value==="default"),'
-		f"{{...t,value:{js_literal(model)},resolvedModel:{js_literal(model)},displayName:{js_literal(label)}}},"
-		f'...m.filter((x)=>x.value!=="default")];'
-	) if mythos else ""
+	to one whose models are the Default row, then a row per `lineup` entry
+	((model ID, label) pairs) in order, then any other rows the CLI added.
+	Lineup rows get their label and no description, so the picker shows
+	just their names. A lineup row the CLI left out is built from its
+	STAND_INS row, unless the CLI listed it as unavailable."""
+	stand_ins = {model: STAND_INS[model] for model, _ in lineup if model in STAND_INS}
 	return (
 		"(r)=>{let m=r?.models;if(!Array.isArray(m))return r;"
-		+ readd_mythos
-		+ 'return{...r,models:m.map((x)=>x.value==="default"?x:{...x,description:""})}}'
+		f"let L={js_literal(lineup)},S={js_literal(stand_ins)},u=r.unavailable_models??[],"
+		'o=m.filter((x)=>x.value!=="default"),f=(id,rows)=>rows.find((x)=>x.resolvedModel===id);'
+		'return{...r,models:[...m.filter((x)=>x.value==="default"),...L.flatMap(([id,label])=>{'
+		"let x=f(id,o);"
+		"if(!x){let t=S[id]&&!f(id,u)&&f(S[id],o);if(!t)return[];x={...t,value:id,resolvedModel:id}}"
+		'return[{...x,displayName:label,description:""}]}),'
+		"...o.filter((x)=>!L.some(([id])=>id===x.resolvedModel))]}}"
 	)
 
 
@@ -140,7 +149,7 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 	"""Return {relative file path: [(compiled regex, replacement)]} for one
 	extension directory. Replacements are re.subn replacement strings.
 	`mythos` says whether the model lineup includes Mythos."""
-	lineup = [entry for entry in MODEL_LINEUP if mythos or entry != MYTHOS]
+	lineup = [entry for entry in MODEL_LINEUP if mythos or entry[0] != MYTHOS]
 	return {
 		"webview/index.css": [
 			# Monaco widget font (hovers, suggest details).
@@ -183,14 +192,14 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			 r"\1," + MONACO_FONT_FAMILY),
 			# The model picker component: leave the Default row out of its
 			# rows, and when no model is set (current model "default"), check
-			# the row the Default row resolves to. The rest of the webview
-			# still finds the Default row, to show the current model's name
-			# and effort levels.
+			# the row the Default row resolves to (minus any 1M-context
+			# suffix). The rest of the webview still finds the Default row,
+			# to show the current model's name and effort levels.
 			(re.compile(r"(availableModels:([\w$]+),unavailableModels:[\w$]+,currentModel:([\w$]+),[^;]*?\}\)\{)"
 			            r"([^;]*?\[\.\.\.[\w$]+\()\2\?\?\[\]\)"),
 			 r'\1let pccDefault=\2?.find((m)=>m.value==="default");'
 			 r'if(\3==="default"&&pccDefault)'
-			 r'\3=\2.find((m)=>m!==pccDefault&&m.resolvedModel===pccDefault.resolvedModel)?.value??\3;'
+			 r'\3=\2.find((m)=>m!==pccDefault&&m.resolvedModel===pccDefault.resolvedModel?.replace("[1m]",""))?.value??\3;'
 			 r'\4(\2??[]).filter((m)=>m.value!=="default"))'),
 		],
 		"extension.js": [
@@ -202,15 +211,16 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			# ... and re-point its configuration-change listener accordingly.
 			(re.compile(r'affectsConfiguration\("chat\.(editor\.font(?:Size|Family|Weight))"\)'),
 			 r'affectsConfiguration("\1")'),
-			# Launch the chat's CLI with the model lineup as its picker. The
-			# SDK passes this as --settings, whose modelPicker wins over one
-			# in ~/.claude/settings.json; other keys still come from there.
+			# Launch the chat's CLI with the model lineup as its picker and
+			# DEFAULT_MODEL as its default. The SDK passes these as
+			# --settings, which win over ~/.claude/settings.json's (but
+			# leave its other env entries and keys alone).
 			(re.compile(r'(?=settingSources:\["user","project","local"\],toolConfig:)'),
-			 "settings:" + model_picker_settings(lineup) + ","),
+			 "settings:" + cli_settings(lineup) + ","),
 			# Fix up the model rows in the SDK's initialize(), where every
 			# model list the extension (and so the webview) sees comes from.
 			(re.compile(r"let ([\w$]+)=\(await ([\w$]+)\)\.response;(?=if\(this\.initConfig)"),
-			 r"let \1=(" + models_fixup(mythos) + r")((await \2).response);"),
+			 r"let \1=(" + models_fixup(lineup) + r")((await \2).response);"),
 		],
 	}
 
@@ -302,7 +312,8 @@ def undo_dir(ext_dir):
 
 def main() -> None:
 	args = sys.argv[1:]
-	assert set(args) <= {"--undo", "--no-mythos"}, "usage: patch-claude-code [--undo] [--no-mythos]"
+	if not set(args) <= {"--undo", "--no-mythos"}:
+		sys.exit("usage: patch-claude-code [--undo] [--no-mythos]")
 	undo   = "--undo" in args
 	mythos = "--no-mythos" not in args
 
