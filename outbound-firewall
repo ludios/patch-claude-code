@@ -24,8 +24,9 @@ parser. What's left is checked as below.
 
 All the strings and numbers in the tool call's input are checked as one
 text, so a name split across fields ({"first": "Ada", "last": "Lovelace"})
-still matches. So is any file an argument names by absolute path, as upload
-tools take.
+still matches. So are the first MAX_TEXT bytes of any file an argument names
+by absolute path, as upload tools take, and of the compressed streams in
+them; a longer file is too big to check, unless that start already matches.
 
 That text is also decoded, up to MAX_LAYERS decodings deep in any order,
 with: reversal, rot13, percent-decoding, HTML entities, \x \u and octal
@@ -48,13 +49,14 @@ On a match the hook answers "deny", and its reason, REFUSAL, tells Claude to
 go on without the string; nobody has to answer a permission prompt. Its
 systemMessage tells the user what matched and how it was encoded, which
 shows up a false positive or an exfiltration attempt. A missing or empty
-config asks instead, as does a tool call too big to check (over MAX_TEXT
-characters, naming a file of over MAX_TEXT bytes, or decoding to over
-MAX_INSPECT): the user has to sort those out, and a deny's reason would hand
-Claude the config's path or the line it complains about; in a `claude -p`
-run nobody can answer, so the call is refused. With "onFailure": "block" a
-crash or timeout blocks the call too. So the firewall never silently fails
-open.
+config asks instead, as does a tool call too big to check (text over
+MAX_TEXT characters, a file over MAX_TEXT bytes, a compressed stream
+inflating past MAX_INFLATE bytes, or decodings adding up to over
+MAX_INSPECT characters), and the reason says which: the user has to sort
+those out, and a deny's reason would hand Claude the config's path or the
+line it complains about; in a `claude -p` run nobody can answer, so the
+call is refused. With "onFailure": "block" a crash or timeout blocks the
+call too. So the firewall never silently fails open.
 
 Install by adding to ~/.claude/settings.json the following. The matcher
 leaves out the tools that stay on this machine, which also keeps them usable
@@ -116,8 +118,10 @@ REFUSAL        = "Don't run any commands with my full name or email (git is alre
 
 
 class TooBigToInspect(Exception):
-	"""The tool call holds more than MAX_TEXT characters, or decodes to more
-	than MAX_INSPECT."""
+	"""The tool call can't be checked whole; the message says what's too big:
+	its text (over MAX_TEXT characters), a file it names (over MAX_TEXT bytes),
+	a compressed stream (inflating past MAX_INFLATE bytes), or its decodings
+	(adding up to over MAX_INSPECT characters)."""
 
 
 def normalize(text: str) -> str:
@@ -341,12 +345,16 @@ CODES = (
 
 def inflate(data: bytes) -> Iterator[bytes]:
 	"""Yield what each gzip, zlib, bzip2 or xz stream starting somewhere in
-	`data` decompresses to, as far as it gets."""
+	`data` decompresses to, as far as it gets. Raises TooBigToInspect if one
+	inflates past MAX_INFLATE bytes, as the rest would go unchecked."""
 	for match in COMPRESSED.finditer(data):
 		try:
-			yield DECOMPRESSORS[match.lastindex - 1]().decompress(data[match.start():], MAX_INFLATE)
+			inflated = DECOMPRESSORS[match.lastindex - 1]().decompress(data[match.start():], MAX_INFLATE)
 		except (zlib.error, OSError, lzma.LZMAError):
-			pass
+			continue
+		if len(inflated) >= MAX_INFLATE:
+			raise TooBigToInspect(f"a compressed stream in it inflates past {MAX_INFLATE:,} bytes")
+		yield inflated
 
 
 def readable_runs(data: bytes) -> Iterator[str]:
@@ -426,7 +434,7 @@ def decodings(text: str) -> Iterator[tuple[str, tuple[str, ...]]]:
 						continue
 					inspected += len(decoded)
 					if inspected > MAX_INSPECT:
-						raise TooBigToInspect
+						raise TooBigToInspect(f"its decodings add up to over {MAX_INSPECT:,} characters")
 					seen.add(decoded)
 					next_layer.append((decoded, path + (name,)))
 					yield decoded, path + (name,)
@@ -450,10 +458,10 @@ def strings_in(value: object, keys: bool = False) -> Iterator[str]:
 			yield from strings_in(item, keys)
 
 
-def file_content(arg: str) -> str | None:
-	"""Return, as text, the file `arg` names by absolute path, or None if
-	`arg` names no readable file. Raises TooBigToInspect if the file holds
-	more than MAX_TEXT bytes, as then it can't all be checked."""
+def file_start(arg: str) -> bytes | None:
+	"""Return the first MAX_TEXT + 1 bytes of the file `arg` names by absolute
+	path (enough to tell it's longer than MAX_TEXT), or None if `arg` names no
+	readable file."""
 	if not arg.startswith(("/", "~/")) or "\n" in arg:
 		return None
 	path = Path(arg).expanduser()
@@ -461,32 +469,50 @@ def file_content(arg: str) -> str | None:
 		if not path.is_file():  # nor a FIFO or device, which could block or never end
 			return None
 		with path.open("rb") as f:
-			data = f.read(MAX_TEXT + 1)
+			return f.read(MAX_TEXT + 1)
 	except (OSError, ValueError):
 		return None
-	if len(data) > MAX_TEXT:
-		raise TooBigToInspect
-	return data.decode("utf-8", "replace")
 
 
-def first_blocked(tool_input: object, blocked: dict[str, tuple[str, str]]) -> str | None:
-	"""Return a description of the first blocked string found in `tool_input`,
-	or None if there is none.
+def search(text: str, blocked: dict[str, tuple[str, str]]) -> str | None:
+	"""Return a description of the first blocked string found in `text`, plain
+	or encoded, or None if there is none.
 
 	`blocked` maps forms to search for to the blocked string as written and how
 	the form was derived, as load_blocked returns. Raises TooBigToInspect if
-	the tool input, or a file it names, is too much text, or decodes to it.
+	`text` decodes to too much.
 	"""
-	args = [*strings_in(tool_input), *strings_in(tool_input, keys=True)]
-	text = "\x00".join(args + [content for content in map(file_content, args) if content is not None])
-	if len(text) > MAX_TEXT:
-		raise TooBigToInspect
 	for decoded, path in decodings(text):
 		form = normalize(decoded)
 		for key, (entry, how) in blocked.items():
 			if key in form:
 				steps = f" after {' → '.join(path)}" if path else ""
 				return f"{entry!r} ({how}){steps}"
+	return None
+
+
+def first_blocked(tool_input: object, blocked: dict[str, tuple[str, str]]) -> str | None:
+	"""Return a description of the first blocked string found in `tool_input`
+	or in the start of a file it names, or None if there is none.
+
+	`blocked` is as load_blocked returns. Raises TooBigToInspect if the tool
+	input is too much text, or decodes to too much, or names a file longer
+	than MAX_TEXT bytes whose start matches nothing.
+	"""
+	args = list(dict.fromkeys([*strings_in(tool_input), *strings_in(tool_input, keys=True)]))
+	text = "\x00".join(args)
+	if len(text) > MAX_TEXT:
+		raise TooBigToInspect(f"its text is over {MAX_TEXT:,} characters")
+	if (found := search(text, blocked)) is not None:
+		return found
+	for arg in args:
+		data = file_start(arg)
+		if data is None:
+			continue
+		if (found := search("\x00".join(readable_runs(data)), blocked)) is not None:
+			return f"{found} in {arg}"
+		if len(data) > MAX_TEXT:
+			raise TooBigToInspect(f"the file {arg} holds over {MAX_TEXT:,} bytes")
 	return None
 
 
@@ -559,8 +585,8 @@ def main() -> None:
 		tool_input = {**tool_input, "command": without_identity_flags(tool_input["command"])}
 	try:
 		found = first_blocked(tool_input, blocked)
-	except TooBigToInspect:
-		respond(permissionDecision="ask", permissionDecisionReason=f"outbound-firewall: this {tool} call is too big to check (over {MAX_TEXT:,} characters, or decoding to over {MAX_INSPECT:,})")
+	except TooBigToInspect as e:
+		respond(permissionDecision="ask", permissionDecisionReason=f"outbound-firewall: this {tool} call is too big to check: {e}")
 		return
 	if found is not None:
 		respond(permissionDecision="deny", permissionDecisionReason=REFUSAL, note=f"outbound-firewall: this {tool} call contains {found}")

