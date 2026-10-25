@@ -34,7 +34,8 @@ surfaces hardcode their own sizes besides. This script patches:
                        size variable); hide the model picker's Default row,
                        checking the row the default resolves to instead;
                        show the tokens in context (e.g. "152k") right of the
-                       input footer's prompt-cache clock
+                       input footer's prompt-cache clock, and keep that count
+                       through API errors
   resources/native-binary/claude
                      - on NixOS only: point its ELF interpreter at the
                        system's dynamic loader (taken from
@@ -205,17 +206,26 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			 r'if(\3==="default"&&pccDefault)'
 			 r'\3=\2.find((m)=>m!==pccDefault&&m.resolvedModel===pccDefault.resolvedModel?.replace("[1m]",""))?.value??\3;'
 			 r'\4(\2??[]).filter((m)=>m.value!=="default"))'),
+			# Keep the session's context-usage count when a synthetic
+			# assistant message (API error, notice) arrives: its usage is
+			# all zeros, which would blank the count until the next response.
+			(re.compile(r"if\(this\.updateUsage\(([\w$]+)\.message\.usage\),(\1\.message\.model!==[\w$]+)\)"),
+			 r"if(\2&&this.updateUsage(\1.message.usage),\2)"),
 			# Right of the input footer's prompt-cache clock ("60m"), show how
 			# many tokens are in context, styled like the clock's text, with
 			# the exact count on hover. It is the count behind the footer's
 			# context pie (which appears only past 50% used), as of the last
 			# main-thread response; 0, so hidden, in new and just-compacted
-			# sessions.
+			# sessions. Like the clock's text, it is marked fixed-width and
+			# re-created only when its length changes, so the footer re-fits
+			# its items only then.
 			(re.compile(r"(([\w$]+)\([\w$]+,\{usedTokens:([\w$]+)\.usageData\.value\.totalTokens,[^}]*?"
 			            r"buttonClassName:([\w$]+)\.usageButtonV2\}\),\2\([\w$]+,\{session:\3\}\))"),
-			 r'\1,((t)=>t>0&&\2("span",{className:`${\4.footerButton} ${\4.footerButtonPrimary}`,'
-			 r'title:`${t.toLocaleString()} tokens in context`,style:{cursor:"default",background:"none"},'
-			 r'children:\2("span",{children:`${Math.round(t/1e3)}k`})}))(\3.usageData.value.totalTokens)'),
+			 r'\1,((pccTokens,pccText=`${Math.round(pccTokens/1e3)}k`)=>pccTokens>0&&\2("span",{'
+			 r'className:`${\4.footerButton} ${\4.footerButtonPrimary} ${\4.footerButtonStatic}`,'
+			 r'title:`${pccTokens.toLocaleString()} tokens in context`,'
+			 r'children:\2("span",{"data-footer-fixed-width":"",children:pccText},pccText.length)}))'
+			 r'(\3.usageData.value.totalTokens)'),
 		],
 		"extension.js": [
 			# Feed the webview override from editor.* instead of chat.editor.*
