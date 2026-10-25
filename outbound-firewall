@@ -45,11 +45,15 @@ encoding not listed above (XOR, a made-up alphabet, a string split up within
 an argument, a base-N run that is an ordinary word, ...), gets through.
 
 On a match the hook answers "deny", and its reason, REFUSAL, tells Claude to
-go on without the string; nobody has to answer a permission prompt. A missing
-or empty config denies too, as does a tool call too big to check (over
-MAX_TEXT characters, files included, or decoding to over MAX_INSPECT); and
-with "onFailure": "block" a crash or timeout blocks the call. So the firewall
-never silently fails open.
+go on without the string; nobody has to answer a permission prompt. Its
+systemMessage tells the user what matched and how it was encoded, which
+shows up a false positive or an exfiltration attempt. A missing or empty
+config asks instead, as does a tool call too big to check (over MAX_TEXT
+characters, files included, or decoding to over MAX_INSPECT): the user has
+to sort those out, and a deny's reason would hand Claude the config's path
+or the line it complains about; in a `claude -p` run nobody can answer, so
+the call is refused. With "onFailure": "block" a crash or timeout blocks
+the call too. So the firewall never silently fails open.
 
 Install by adding to ~/.claude/settings.json the following. The matcher
 leaves out the tools that stay on this machine, which also keeps them usable
@@ -524,14 +528,14 @@ def without_identity_flags(command: str) -> str:
 	return command
 
 
-def respond(**output: object) -> None:
-	"""Answer Claude Code with `output` as the hook's hookSpecificOutput fields."""
-	json.dump({"hookSpecificOutput": {"hookEventName": "PreToolUse", **output}}, sys.stdout)
-
-
-def refuse(reason: str) -> None:
-	"""Tell Claude Code to refuse the tool call, and Claude why: `reason`."""
-	respond(permissionDecision="deny", permissionDecisionReason=reason)
+def respond(note: str | None = None, **output: object) -> None:
+	"""Answer Claude Code with `output` as the hook's hookSpecificOutput
+	fields, plus `note`, if any, as its systemMessage: a line shown to the
+	user, but not to Claude."""
+	answer = {"hookSpecificOutput": {"hookEventName": "PreToolUse", **output}}
+	if note is not None:
+		answer["systemMessage"] = note
+	json.dump(answer, sys.stdout)
 
 
 def main() -> None:
@@ -544,7 +548,7 @@ def main() -> None:
 	try:
 		blocked = load_blocked(config)
 	except (OSError, ValueError) as e:
-		refuse(f"outbound-firewall can't use its config {config}: {e}")
+		respond(permissionDecision="ask", permissionDecisionReason=f"outbound-firewall can't use its config {config}: {e}")
 		return
 	tool_input = event["tool_input"]
 	if tool == "Bash" and isinstance(tool_input.get("command"), str):
@@ -552,10 +556,10 @@ def main() -> None:
 	try:
 		found = first_blocked(tool_input, blocked)
 	except TooBigToInspect:
-		refuse(f"outbound-firewall: this {tool} call is too big to check (over {MAX_TEXT:,} characters, or decoding to over {MAX_INSPECT:,})")
+		respond(permissionDecision="ask", permissionDecisionReason=f"outbound-firewall: this {tool} call is too big to check (over {MAX_TEXT:,} characters, or decoding to over {MAX_INSPECT:,})")
 		return
 	if found is not None:
-		refuse(REFUSAL)
+		respond(permissionDecision="deny", permissionDecisionReason=REFUSAL, note=f"outbound-firewall: this {tool} call contains {found}")
 	elif tool_input != event["tool_input"]:
 		respond(updatedInput=tool_input, additionalContext=REWRITE_NOTE)
 
