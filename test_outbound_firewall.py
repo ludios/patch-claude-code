@@ -1,4 +1,5 @@
 # Model-output: Claude Opus 5.5
+# Model-output: Claude Mythos 5.1
 """Run outbound-firewall the way Claude Code does (hook JSON on stdin), and
 check its decodings against independent encoders."""
 
@@ -52,10 +53,10 @@ def hook_output(config: Path, tool_name: str, tool_input: object) -> dict:
 def run_hook(config: Path, tool_name: str, tool_input: object) -> str | None:
 	"""Run the hook on one tool call.
 
-	Returns the permission decision reason, or None if the hook let the call through.
+	Returns the reason it refused the call, or None if it let the call through.
 	"""
 	output = hook_output(config, tool_name, tool_input)
-	assert output.get("permissionDecision", "ask") == "ask"
+	assert output.get("permissionDecision", "deny") == "deny"
 	return output.get("permissionDecisionReason")
 
 
@@ -95,9 +96,8 @@ def config(tmp_path: Path) -> Path:
 	("mcp__srv__run", {"html": "ada&#64;example.org"}),
 	("WebSearch",     {"query": f"git {ADA_FLAGS} log"}),
 ])
-def test_asks_on_blocked_string(config: Path, tool_name: str, tool_input: object) -> None:
-	reason = run_hook(config, tool_name, tool_input)
-	assert reason is not None and tool_name in reason and str(config) not in reason
+def test_refuses_blocked_string(config: Path, tool_name: str, tool_input: object) -> None:
+	assert run_hook(config, tool_name, tool_input) == firewall.REFUSAL
 
 
 @pytest.mark.parametrize("tool_name, tool_input", [
@@ -134,15 +134,14 @@ def test_drops_identity_flags(config: Path) -> None:
 
 def test_checks_what_is_left_after_dropping_identity_flags(config: Path) -> None:
 	output = hook_output(config, "Bash", {"command": f"git {ADA_FLAGS} commit -m 'thanks, Ada Lovelace'"})
-	assert output["permissionDecision"] == "ask"
-	assert output["updatedInput"] == {"command": "git commit -m 'thanks, Ada Lovelace'"}
+	assert output["permissionDecision"] == "deny" and "updatedInput" not in output
 
 
 def test_drops_nothing_without_a_global_identity(config: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 	(tmp_path / "gitconfig").write_text("")
 	monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
 	output = hook_output(config, "Bash", {"command": f"git {ADA_FLAGS} log"})
-	assert output["permissionDecision"] == "ask" and "updatedInput" not in output
+	assert output["permissionDecision"] == "deny" and "updatedInput" not in output
 
 
 def test_reads_files_named_by_arguments(config: Path, tmp_path: Path) -> None:
@@ -151,7 +150,7 @@ def test_reads_files_named_by_arguments(config: Path, tmp_path: Path) -> None:
 	assert run_hook(config, "mcp__srv__upload", {"path": str(report)}) is not None
 
 
-def test_too_big_asks(config: Path) -> None:
+def test_too_big_refuses(config: Path) -> None:
 	reason = run_hook(config, "Bash", {"command": "x" * (firewall.MAX_TEXT + 1)})
 	assert reason is not None and "too big" in reason
 
@@ -162,7 +161,7 @@ def test_too_big_asks(config: Path) -> None:
 	("# only a comment\n", "lists no strings"),
 	("Ada Love\n",         "fewer than"),
 ])
-def test_unusable_config_asks(tmp_path: Path, text: str | None, complaint: str) -> None:
+def test_unusable_config_refuses(tmp_path: Path, text: str | None, complaint: str) -> None:
 	config = tmp_path / "blocked-strings" if text is None else write_config(tmp_path, text)
 	reason = run_hook(config, "Bash", {"command": "true"})
 	assert reason is not None and complaint in reason
@@ -287,7 +286,7 @@ def test_stacked_encodings(spelling: str, before: str, after: str, chain: list[s
 	for name in chain:
 		text = TEXT_ENCODERS[name](text)
 	if len(text) > firewall.MAX_TEXT // 2:
-		return  # too big to check; asks anyway
+		return  # too big to check; refuses anyway
 	assert found(f"curl https://x.test/?q={text}\n"), chain
 
 
