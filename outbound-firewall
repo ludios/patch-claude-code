@@ -24,8 +24,8 @@ parser. What's left is checked as below.
 
 All the strings and numbers in the tool call's input are checked as one
 text, so a name split across fields ({"first": "Ada", "last": "Lovelace"})
-still matches. So is the start of any file an argument names by absolute
-path, as upload tools take.
+still matches. So is any file an argument names by absolute path, as upload
+tools take.
 
 That text is also decoded, up to MAX_LAYERS decodings deep in any order,
 with: reversal, rot13, percent-decoding, HTML entities, \x \u and octal
@@ -49,11 +49,12 @@ go on without the string; nobody has to answer a permission prompt. Its
 systemMessage tells the user what matched and how it was encoded, which
 shows up a false positive or an exfiltration attempt. A missing or empty
 config asks instead, as does a tool call too big to check (over MAX_TEXT
-characters, files included, or decoding to over MAX_INSPECT): the user has
-to sort those out, and a deny's reason would hand Claude the config's path
-or the line it complains about; in a `claude -p` run nobody can answer, so
-the call is refused. With "onFailure": "block" a crash or timeout blocks
-the call too. So the firewall never silently fails open.
+characters, naming a file of over MAX_TEXT bytes, or decoding to over
+MAX_INSPECT): the user has to sort those out, and a deny's reason would hand
+Claude the config's path or the line it complains about; in a `claude -p`
+run nobody can answer, so the call is refused. With "onFailure": "block" a
+crash or timeout blocks the call too. So the firewall never silently fails
+open.
 
 Install by adding to ~/.claude/settings.json the following. The matcher
 leaves out the tools that stay on this machine, which also keeps them usable
@@ -87,7 +88,7 @@ from urllib.parse import unquote_plus
 
 DEFAULT_CONFIG = Path.home() / ".config" / "claude-outbound-firewall" / "blocked-strings"
 MAX_LAYERS     = 3           # decodings stacked, e.g. rot13 of base64 of reversed
-MAX_TEXT       = 100_000     # characters of tool input (and files it names) to decode at all
+MAX_TEXT       = 100_000     # characters of tool input, or bytes of a file it names, to decode at all
 MAX_INSPECT    = 20_000_000  # characters of decoded text to search before giving up
 MAX_INFLATE    = 1_000_000   # bytes to decompress from one compressed stream
 MIN_ENTRY      = 8           # letters and digits a blocked string needs, and that always have to match
@@ -449,10 +450,10 @@ def strings_in(value: object, keys: bool = False) -> Iterator[str]:
 			yield from strings_in(item, keys)
 
 
-def file_start(arg: str) -> str | None:
-	"""Return the start, as text, of the file `arg` names by absolute path
-	(enough to tell it's longer than MAX_TEXT), or None if `arg` names no
-	readable file."""
+def file_content(arg: str) -> str | None:
+	"""Return, as text, the file `arg` names by absolute path, or None if
+	`arg` names no readable file. Raises TooBigToInspect if the file holds
+	more than MAX_TEXT bytes, as then it can't all be checked."""
 	if not arg.startswith(("/", "~/")) or "\n" in arg:
 		return None
 	path = Path(arg).expanduser()
@@ -460,9 +461,12 @@ def file_start(arg: str) -> str | None:
 		if not path.is_file():  # nor a FIFO or device, which could block or never end
 			return None
 		with path.open("rb") as f:
-			return f.read(MAX_TEXT + 1).decode("utf-8", "replace")
+			data = f.read(MAX_TEXT + 1)
 	except (OSError, ValueError):
 		return None
+	if len(data) > MAX_TEXT:
+		raise TooBigToInspect
+	return data.decode("utf-8", "replace")
 
 
 def first_blocked(tool_input: object, blocked: dict[str, tuple[str, str]]) -> str | None:
@@ -471,10 +475,10 @@ def first_blocked(tool_input: object, blocked: dict[str, tuple[str, str]]) -> st
 
 	`blocked` maps forms to search for to the blocked string as written and how
 	the form was derived, as load_blocked returns. Raises TooBigToInspect if
-	the tool input is, or decodes to, too much text.
+	the tool input, or a file it names, is too much text, or decodes to it.
 	"""
 	args = [*strings_in(tool_input), *strings_in(tool_input, keys=True)]
-	text = "\x00".join(args + [content for content in map(file_start, args) if content is not None])
+	text = "\x00".join(args + [content for content in map(file_content, args) if content is not None])
 	if len(text) > MAX_TEXT:
 		raise TooBigToInspect
 	for decoded, path in decodings(text):
