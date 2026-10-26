@@ -31,7 +31,7 @@ surfaces hardcode their own sizes besides. This script patches:
                        line under tool headers: "Answered · N questions",
                        "Added N lines", ...) back to the normal chat size;
                        set off the background of prompts in the chat
-                       (purple in dark themes)
+                       (purple in dark, non-high-contrast themes)
   webview/index.js   - pass the family variable into the embedded Monaco
                        diff editors (they already take their size from the
                        size variable); hide the model picker's Default row,
@@ -192,7 +192,9 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			 r"\1font-size:1em"),
 			# Prompts in the chat share the input box's background; to make
 			# them easier to spot among replies, make theirs purple in dark
-			# themes, and elsewhere mix 10% of the text color into it.
+			# themes (VS Code marks those with .vscode-dark; high-contrast
+			# ones get .vscode-high-contrast instead), and elsewhere mix 10%
+			# of the text color into it.
 			(re.compile(r"(\.userMessage_([\w-]+)\{[^}]*?background-color:)([^;}]+)([^}]*\})"),
 			 r"\1color-mix(in srgb,\3,var(--app-primary-foreground) 10%)\4"
 			 r".vscode-dark .userMessage_\2{background-color:#3e2193}"),
