@@ -248,8 +248,10 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			 "return{}"),
 			# Prompts (and slash-command echoes) are cut to 60px behind a
 			# "Show more" button by a component that collapses content taller
-			# than its maxHeight; make every maxHeight infinite.
-			(re.compile(r"(\{children:[\w$]+,maxHeight:([\w$]+)=\d+\}\)\{)"),
+			# than its maxHeight; make every maxHeight infinite. The component
+			# is found by the CSS-module map defined just before it.
+			(re.compile(r'(expandableContainer:"expandableContainer_[\w-]+"[^}]*\};'
+			            r"function [\w$]+\(\{children:[\w$]+,maxHeight:([\w$]+)=\d+\}\)\{)"),
 			 r"\1\2=1/0;"),
 		],
 		"extension.js": [
