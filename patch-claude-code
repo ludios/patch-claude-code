@@ -30,9 +30,9 @@ surfaces hardcode their own sizes besides. This script patches:
                        answered-AskUserQuestion review box, and the secondary
                        line under tool headers: "Answered · N questions",
                        "Added N lines", ...) back to the normal chat size;
-                       set off the background of prompts in the chat
-                       (colored, with lighter text, in dark,
-                       non-high-contrast themes)
+                       set off prompts in the chat (in dark,
+                       non-high-contrast themes, with a colored background
+                       and near-white text)
   webview/index.js   - pass the family variable into the embedded Monaco
                        diff editors (they already take their size from the
                        size variable); hide the model picker's Default row,
@@ -193,7 +193,7 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			 r"\1font-size:1em"),
 			# Prompts in the chat share the input box's background; to make
 			# them easier to spot among replies, give them a colored
-			# background with lighter text in dark themes (VS Code marks
+			# background with near-white text in dark themes (VS Code marks
 			# those with .vscode-dark; high-contrast ones get
 			# .vscode-high-contrast instead), and elsewhere mix 10% of the
 			# text color into their background.
