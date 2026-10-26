@@ -4,8 +4,9 @@
 """Patch the Claude Code VS Code extension so every monospace surface in its
 chat follows the user's editor.fontFamily and editor.fontSize settings, so
 its model picker offers a fixed lineup of models, so its input footer shows
-how many tokens are in context, and, on NixOS, so its native binary can run
-at all.
+how many tokens are in context, so a prompt scrolls with the rest of the
+chat instead of staying pinned to its top, and, on NixOS, so its native
+binary can run at all.
 
 VS Code injects the real editor font into every webview as the
 --vscode-editor-font-family / --vscode-editor-font-size (px) CSS variables,
@@ -35,7 +36,8 @@ surfaces hardcode their own sizes besides. This script patches:
                        checking the row the default resolves to instead;
                        show the tokens in context (e.g. "152k") right of the
                        input footer's prompt-cache clock, and keep that count
-                       through API errors
+                       through API errors; stop pinning each prompt to the
+                       top of the chat while its turn scrolls by
   resources/native-binary/claude
                      - on NixOS only: point its ELF interpreter at the
                        system's dynamic loader (taken from
@@ -226,6 +228,16 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			 r'title:`${pccTokens.toLocaleString()} tokens in context`,'
 			 r'children:\2("span",{"data-footer-fixed-width":"",children:pccText},pccText.length)}))'
 			 r'(\3.usageData.value.totalTokens)'),
+			# Let each prompt scroll away with its turn: drop the
+			# sticky-header class from its row (which also lifts the row's
+			# 40vh height cap, and stops scrolling-into-view from leaving
+			# room for the row) ...
+			(re.compile(r'\$\{[\w$]+\?[\w$]+\.stickyHeader:""\}'),
+			 ""),
+			# ... and its click handler, which scrolls the chat back to where
+			# the turn starts (for a prompt pinned while its turn scrolled by).
+			(re.compile(r"return [\w$]+\?\{onMouseDownCapture:[\w$]+,onClick:[\w$]+\}:\{\}"),
+			 "return{}"),
 		],
 		"extension.js": [
 			# Feed the webview override from editor.* instead of chat.editor.*
