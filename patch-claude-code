@@ -4,9 +4,9 @@
 """Patch the Claude Code VS Code extension so every monospace surface in its
 chat follows the user's editor.fontFamily and editor.fontSize settings, so
 its model picker offers a fixed lineup of models, so its input footer shows
-how many tokens are in context, so a prompt is shown in full and scrolls
-with the rest of the chat instead of staying pinned to its top, and, on
-NixOS, so its native binary can run at all.
+how many tokens are in context, so a prompt stands out, is shown in full,
+and scrolls with the rest of the chat instead of staying pinned to its top,
+and, on NixOS, so its native binary can run at all.
 
 VS Code injects the real editor font into every webview as the
 --vscode-editor-font-family / --vscode-editor-font-size (px) CSS variables,
@@ -29,7 +29,8 @@ surfaces hardcode their own sizes besides. This script patches:
                        also bring shrunken chat-font text (the
                        answered-AskUserQuestion review box, and the secondary
                        line under tool headers: "Answered · N questions",
-                       "Added N lines", ...) back to the normal chat size
+                       "Added N lines", ...) back to the normal chat size;
+                       lighten the background of prompts in the chat
   webview/index.js   - pass the family variable into the embedded Monaco
                        diff editors (they already take their size from the
                        size variable); hide the model picker's Default row,
@@ -188,6 +189,10 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			# ...) is shrunk to .85em; give it the normal chat size.
 			(re.compile(r"(\.secondaryLine_[\w-]+\{[^}]*?)font-size:[^;}]+"),
 			 r"\1font-size:1em"),
+			# Prompts in the chat share the input box's background; mix 8%
+			# white into theirs, to make them easier to spot among replies.
+			(re.compile(r"(\.userMessage_[\w-]+\{[^}]*?background-color:)([^;}]+)"),
+			 r"\1color-mix(in srgb,\2,white 8%)"),
 		],
 		"webview/index.js": [
 			# The two embedded Monaco diff editors (chat diffs and previews).
