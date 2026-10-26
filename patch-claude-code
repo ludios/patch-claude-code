@@ -30,7 +30,7 @@ surfaces hardcode their own sizes besides. This script patches:
                        answered-AskUserQuestion review box, and the secondary
                        line under tool headers: "Answered · N questions",
                        "Added N lines", ...) back to the normal chat size;
-                       lighten the background of prompts in the chat
+                       set off the background of prompts in the chat
   webview/index.js   - pass the family variable into the embedded Monaco
                        diff editors (they already take their size from the
                        size variable); hide the model picker's Default row,
@@ -189,10 +189,12 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			# ...) is shrunk to .85em; give it the normal chat size.
 			(re.compile(r"(\.secondaryLine_[\w-]+\{[^}]*?)font-size:[^;}]+"),
 			 r"\1font-size:1em"),
-			# Prompts in the chat share the input box's background; mix 8%
-			# white into theirs, to make them easier to spot among replies.
+			# Prompts in the chat share the input box's background; mix 10%
+			# of the text color into theirs (lightening it in dark themes,
+			# darkening it in light ones), to make them easier to spot among
+			# replies.
 			(re.compile(r"(\.userMessage_[\w-]+\{[^}]*?background-color:)([^;}]+)"),
-			 r"\1color-mix(in srgb,\2,white 8%)"),
+			 r"\1color-mix(in srgb,\2,var(--app-primary-foreground) 10%)"),
 		],
 		"webview/index.js": [
 			# The two embedded Monaco diff editors (chat diffs and previews).
