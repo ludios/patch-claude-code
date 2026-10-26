@@ -195,7 +195,7 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			# themes, and elsewhere mix 10% of the text color into it.
 			(re.compile(r"(\.userMessage_([\w-]+)\{[^}]*?background-color:)([^;}]+)([^}]*\})"),
 			 r"\1color-mix(in srgb,\3,var(--app-primary-foreground) 10%)\4"
-			 r".vscode-dark .userMessage_\2{background-color:#4726a8}"),
+			 r".vscode-dark .userMessage_\2{background-color:#3e2193}"),
 		],
 		"webview/index.js": [
 			# The two embedded Monaco diff editors (chat diffs and previews).
