@@ -20,7 +20,7 @@ All thinking is hidden from the user, so if you find anything they may wish to k
 
 Your `Bash` tool uses zsh, not bash.
 
-You're on NixOS 26.05; many things are installed, including:
+You're on NixOS and many things are installed, including:
 
 ripgrep, ripgrep-all, node, deno, pnpm, oxfmt, oxlint, jq, python3, uv, psql, ephemeralpg (bin: pg_tmp), google-chrome, curl-impersonate, gcc, go, rustc, cargo, patchelf, zip, unzip, zstd, dmesg, perf, hyperfine, codex, claude.
 
@@ -62,9 +62,11 @@ If more external information is needed, think and keep iterating on web search q
 
 If you can't fetch something, use google-chrome or curl_chrome150 on this machine.
 
-# Tracking AI authorship
+# English
 
-Files with any LLM-authored code (not counting mechanistic sed-like changes) begin with a comment like `// Model-output: <model name>`, one per model that contributed (e.g. "Claude Mythos 5.1", "ChatGPT 6 Astra"); keep existing lines.
+All new English must be maximally unambiguous, even if it becomes slightly longer! Think as a reader, and read the text every possible way. For example, never write "cannot change a hash once set" instead of "cannot change a hash (if already set)".
+
+You can ask Astra via codex to rewrite stuff.
 
 # Code conventions
 
@@ -122,9 +124,11 @@ When there are multiple good ways to implement something, especially involving s
 
 # Committing
 
-Commit one logical change at a time whenever possible! Commit early and often! Rework the commits if that makes them better, otherwise just keep going!
+**Other sessions may be at work** and their commits must not be lost. On HEAD / master / main / prime: rebase, amend, reset, stash, etc. **are never allowed**, unless other sessions are idle and not waiting on anything!
 
-Only when small commits are impossible (e.g. with build still working), should larger commits be made.
+Smaller changes are usually easier to think about. Commit one logical change at a time whenever possible! Commit early and often!
+
+When small commits are too hard with e.g. the build still working, larger commits are fine.
 
 **Use the imperative mood in the subject line**. Do not end the subject line with a period. Wrap the body at 72 characters, generally.
 
@@ -157,7 +161,7 @@ Automatically commit your changes with this commit template:
 
 # Code review after each commit
 
-After each commit made, `git clone` the repo into some /tmp/ folder and get it reviewed by Codex and by Claude, all at xhigh reasoning:
+After each commit made, `git clone --shared` the repo into some /tmp/ folder and get it reviewed by Codex and by Claude, all at xhigh reasoning:
 
 	codex review --commit <sha> -c model="gpt-6-astra" -c model_reasoning_effort="xhigh"
 	codex review --commit <sha> -c model="gpt-6.1-sol" -c model_reasoning_effort="xhigh"
@@ -165,7 +169,7 @@ After each commit made, `git clone` the repo into some /tmp/ folder and get it r
 	claude -p --model claude-mythos-5-1 --effort xhigh "/code-review xhigh commit <sha>"
 	claude -p --model claude-opus-5-5 --effort xhigh "/code-review xhigh commit <sha>"
 
-Ensure that the output of each review gets written or copied to ~/.ai-code-reviews/{model}/{commit} or /{commit-range}
+Ensure that the output of each review gets written or copied to ~/.ai-code-reviews/{model}/{full commit hash} or /{full commit hash-final full commit hash}, then delete the clone.
 
 Notes:
 
@@ -173,7 +177,7 @@ Notes:
 	- codex: replace `--commit <sha>` with `--base <sha before your first commit>`
 	- claude: replace `commit <sha>` with `commits <sha before your first commit>..<sha of your last commit>`
 - Codex is already configured globally to never ask for permission and run unsandboxed.
-- A review can take several minutes; start them all in the background.
+- A review can take several minutes; start all of them in one Bash call with `run_in_background`, each command ending in `&`, then one `wait`.
 - Review findings are from **fallible machines eager to find issues**: think and prefer fixes that don't add a bunch of code we don't really need.
 - Once all the reviews are in, fix the oversights that are really worth fixing, in logical, independent commits where possible, without "act on the ... reviews of ..."! If nothing, say briefly why the findings didn't warrant changes.
 - Do _not_ send follow-up fixes through another review. (Exception: the follow-up grew into something substantial beyond addressing the findings.)
