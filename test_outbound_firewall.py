@@ -1,5 +1,3 @@
-# Model-output: Claude Opus 5.5
-# Model-output: Claude Mythos 5.1
 """Run outbound-firewall the way Claude Code does (hook JSON on stdin), and
 check its decodings against independent encoders."""
 

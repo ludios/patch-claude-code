@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-# Model-output: Claude Opus 5.5
-# Model-output: Claude Mythos 5.1
 r"""Claude Code PreToolUse hook: refuse any tool call that could reach the
 network and carries one of the user's private strings (name, email, ...),
 plain or encoded the ways a prompt injection might ask for.

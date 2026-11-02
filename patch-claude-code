@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-# Model-output: Claude Fable 5
-# Model-output: Claude Opus 5.5
 """Patch the Claude Code VS Code extension so every monospace surface in its
 chat follows the user's editor.fontFamily and editor.fontSize settings, so
 its model picker offers a fixed lineup of models, so its input footer shows
