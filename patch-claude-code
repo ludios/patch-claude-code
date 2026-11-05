@@ -274,8 +274,10 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			 "settings:" + cli_settings(lineup) + ","),
 			# Fix up the model rows in the SDK's initialize(), where every
 			# model list the extension (and so the webview) sees comes from.
-			# The response is read right after initialize() marks its
-			# request as written.
+			# In the minified source, the statement that reads the response
+			# directly follows the finally block that ends with
+			# this.markInitializeWritten() (which runs only on the first
+			# initialize(), but the read and so the fixup run on every one).
 			(re.compile(r"(?<=this\.markInitializeWritten\(\)\})let ([\w$]+)=\(await ([\w$]+)\)\.response;"),
 			 r"let \1=(" + models_fixup(lineup) + r")((await \2).response);"),
 		],
