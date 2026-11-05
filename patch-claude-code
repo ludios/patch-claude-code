@@ -20,12 +20,13 @@ surfaces hardcode their own sizes besides. This script patches:
                        model rows it answers with in lineup order, name-only,
                        re-adding Mythos when the CLI hides it
   webview/index.css  - point --monaco-monospace-font at the editor font, and
-                       give every monospace rule with a smaller hardcoded size
-                       or a size at most the chat font size (tool IN/OUT rows,
-                       header filenames, markdown inline code, slash-command
-                       echoes, permission requests, pills, git summaries,
-                       changed-file lists, MCP dialogs, ...)
-                       var(--vscode-editor-font-size);
+                       give each monospace rule whose own font-size is small
+                       (under 14px, a fraction of an em, a percentage,
+                       inherit, or the chat font size, possibly minus some
+                       px) var(--vscode-editor-font-size) instead (tool
+                       IN/OUT rows, header filenames, markdown inline code,
+                       slash-command echoes, permission requests, pills, git
+                       summaries, changed-file lists, MCP dialogs, ...);
                        also bring shrunken chat-font text (the
                        answered-AskUserQuestion review box, and the secondary
                        line under tool headers: "Answered · N questions",
@@ -84,14 +85,19 @@ MONACO_FONT_FAMILY = (
 )
 
 
-# A font-size value smaller than a typical editor font: relative (em/%),
-# sub-14px, inherit, or the chat font size, possibly minus some px.
-# Larger sizes (section titles, decorations, the chat font size plus some
-# px) are deliberately left alone.
+# The chat font size variable, with or without a fallback value.
+CHAT_SIZE = r"var\(--vscode-chat-font-size(?:,[^)]*)?\)"
+# A font-size value that the webview uses for text no larger than its
+# usual text: relative (em/%), sub-14px, inherit, or CHAT_SIZE, possibly
+# minus some px. Larger sizes (14px and up for section titles and
+# decorations, CHAT_SIZE plus some px) are deliberately left alone.
 SMALL_SIZE = (
 	r"(?:\.\d+em|(?:1[0-3]|[1-9])px|\d{1,2}(?:\.\d+)?%|inherit"
-	r"|var\(--vscode-chat-font-size[^)]*\)|calc\(var\(--vscode-chat-font-size[^)]*\) - \d+px\))"
+	r"|" + CHAT_SIZE + r"|calc\(" + CHAT_SIZE + r" - \d+px\))"
 )
+# A font-size declaration, not the end of a custom property's name such
+# as --app-monospace-font-size.
+FONT_SIZE = r"(?<![\w-])font-size:"
 # The two custom properties the webview's monospace rules take their
 # font-family from.
 MONO_FAMILY = r"var\(--app-(?:monospace-font-family|font-family-mono)\)"
@@ -177,9 +183,9 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			# Sweep: any rule that combines the monospace family with a
 			# smaller font-size gets the editor size instead, in both
 			# declaration orders (family first, then size first).
-			(re.compile("(" + MONO_FAMILY + r"[^}]*?)font-size:" + SMALL_SIZE + r"(?=[;}])"),
+			(re.compile("(" + MONO_FAMILY + r"[^}]*?)" + FONT_SIZE + SMALL_SIZE + r"(?=[;}])"),
 			 r"\1font-size:" + EDITOR_SIZE),
-			(re.compile(r"font-size:" + SMALL_SIZE + r"(;[^}]*?" + MONO_FAMILY + r")"),
+			(re.compile(FONT_SIZE + SMALL_SIZE + r"(;[^}]*?" + MONO_FAMILY + r")"),
 			 "font-size:" + EDITOR_SIZE + r"\1"),
 			# The read-only "Answered · N questions" review reuses the
 			# question prompt's .95em/.9em/.85em text, which is sized for
