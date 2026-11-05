@@ -21,9 +21,11 @@ surfaces hardcode their own sizes besides. This script patches:
                        re-adding Mythos when the CLI hides it
   webview/index.css  - point --monaco-monospace-font at the editor font, and
                        give every monospace rule with a smaller hardcoded size
-                       (tool IN/OUT rows, header filenames, markdown inline
-                       code, slash-command echoes, permission requests, pills,
-                       git summaries, ...) var(--vscode-editor-font-size);
+                       or a size at most the chat font size (tool IN/OUT rows,
+                       header filenames, markdown inline code, slash-command
+                       echoes, permission requests, pills, git summaries,
+                       changed-file lists, MCP dialogs, ...)
+                       var(--vscode-editor-font-size);
                        also bring shrunken chat-font text (the
                        answered-AskUserQuestion review box, and the secondary
                        line under tool headers: "Answered · N questions",
@@ -83,9 +85,13 @@ MONACO_FONT_FAMILY = (
 
 
 # A font-size value smaller than a typical editor font: relative (em/%),
-# sub-14px, or inherit. Larger fixed sizes (section titles, decorations)
-# are deliberately left alone.
-SMALL_SIZE = r"(?:\.\d+em|(?:1[0-3]|[1-9])px|\d{1,2}(?:\.\d+)?%|inherit)"
+# sub-14px, inherit, or the chat font size, possibly minus some px.
+# Larger sizes (section titles, decorations, the chat font size plus some
+# px) are deliberately left alone.
+SMALL_SIZE = (
+	r"(?:\.\d+em|(?:1[0-3]|[1-9])px|\d{1,2}(?:\.\d+)?%|inherit"
+	r"|var\(--vscode-chat-font-size[^)]*\)|calc\(var\(--vscode-chat-font-size[^)]*\) - \d+px\))"
+)
 # The two custom properties the webview's monospace rules take their
 # font-family from.
 MONO_FAMILY = r"var\(--app-(?:monospace-font-family|font-family-mono)\)"
