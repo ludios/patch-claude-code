@@ -4,7 +4,8 @@ chat follows the user's editor.fontFamily and editor.fontSize settings, so
 its model picker offers a fixed lineup of models, so its input footer shows
 how many tokens are in context, so a prompt stands out, is shown in full,
 and scrolls with the rest of the chat instead of staying pinned to its top,
-and, on NixOS, so its native binary can run at all.
+so a chat's editor tab shows a spinning logo while its session runs, and,
+on NixOS, so its native binary can run at all.
 
 VS Code injects the real editor font into every webview as the
 --vscode-editor-font-family / --vscode-editor-font-size (px) CSS variables,
@@ -18,7 +19,10 @@ surfaces hardcode their own sizes besides. This script patches:
                        launch the CLI with MODEL_LINEUP as its model picker
                        and DEFAULT_MODEL as its default model, and put the
                        model rows it answers with in lineup order, name-only,
-                       re-adding Mythos when the CLI hides it
+                       re-adding Mythos when the CLI hides it; give a chat
+                       tab the RUNNING_ICON while its session is running
+  resources/claude-logo-running.svg
+                     - created: the plain logo, spinning
   webview/index.css  - point --monaco-monospace-font at the editor font, and
                        give each monospace rule whose own font-size is small
                        (under 14px, a fraction of an em, a percentage,
@@ -55,10 +59,11 @@ extension signatures only at install time), so editing them in place is
 sufficient. The pristine originals are kept as .orig-font backups and re-read
 as the input on every run, so re-running (even with newly added patterns) is
 idempotent. Re-run after every extension update, then reload the VS Code
-window; run with --undo to restore the originals. The native binary gets no
-backup (it is ~300 MB) and --undo leaves its interpreter alone, since the
-binary cannot run on NixOS without it. Pass --no-mythos to leave Mythos out
-of the model lineup, for accounts without access to it.
+window; run with --undo to restore the originals and delete the created
+files. The native binary gets no backup (it is ~300 MB) and --undo leaves
+its interpreter alone, since the binary cannot run on NixOS without it.
+Pass --no-mythos to leave Mythos out of the model lineup, for accounts
+without access to it.
 
 Usage: patch-claude-code [--undo] [--no-mythos]
 """
@@ -75,6 +80,9 @@ BACKUP_SUFFIX   = ".orig-font"
 NATIVE_BINARY   = "resources/native-binary/claude"
 # Any system binary will do; its interpreter is the current glibc's loader.
 NIXOS_LOADER_DONOR = "/run/current-system/sw/bin/sh"
+# The file name of the tab icon this script adds to the extension's
+# resources/, for a chat whose session is running.
+RUNNING_ICON = "claude-logo-running.svg"
 
 EDITOR_SIZE   = "var(--vscode-editor-font-size,12px)"
 EDITOR_FAMILY = "var(--vscode-editor-font-family)"
@@ -292,8 +300,35 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			# initialize(), but the read and so the fixup run on every one).
 			(re.compile(r"(?<=this\.markInitializeWritten\(\)\})let ([\w$]+)=\(await ([\w$]+)\)\.response;"),
 			 r"let \1=(" + models_fixup(lineup) + r")((await \2).response);"),
+			# Give a chat's editor tab the RUNNING_ICON while its session is
+			# running (as the webview reports it: busy, or with background
+			# tasks). The function that picks the tab's icon returns
+			# "pending" (a permission prompt or question waits), "done" (a
+			# completion the user hasn't seen, never while running) or else
+			# "plain"; make it return "running" instead of "plain" for a
+			# running session ...
+			(re.compile(r'(([\w$]+)\?\.state!=="running"\)return"done";)(?=return"plain")'),
+			 r'\1if(\2?.state==="running")return"running";'),
+			# ... and add that icon to its {icon name: file name} map.
+			(re.compile(r'\{(?=pending:"claude-logo-pending\.svg")'),
+			 '{running:"' + RUNNING_ICON + '",'),
 		],
 	}
+
+
+# {relative path: (relative path of the extension file it is made from,
+# [(compiled regex, replacement)])} for each file this script adds to an
+# extension directory; each is made afresh on every run.
+CREATED_FILES = {
+	# The plain logo, turning once every 2 seconds about the center of its
+	# 24x24 viewBox, where the logo is centered. VS Code draws a tab icon as
+	# a CSS background image, which still plays SMIL animations.
+	"resources/" + RUNNING_ICON: ("resources/claude-logo.svg", [
+		(re.compile(r'(viewBox="0 0 24 24".*?<path\b[^>]*[^/]>)', re.DOTALL),
+		 (r'\1<animateTransform attributeName="transform" type="rotate"'
+		  r' from="0 12 12" to="360 12 12" dur="2s" repeatCount="indefinite"/>')),
+	]),
+}
 
 
 def extension_dirs():
@@ -343,11 +378,27 @@ def patch_interpreter(path: Path, interpreter: str) -> bool:
 	return True
 
 
+def apply_patterns(name: str, text: str, file_patterns: list[tuple[re.Pattern[str], str]]) -> tuple[str, bool]:
+	"""Apply `file_patterns`, (compiled regex, re.subn replacement) pairs, in
+	order to `text`, the contents of the file called `name` (for messages).
+	Returns the result, and whether every pattern matched; prints a warning
+	for each that did not (the signal that an extension update changed the
+	code)."""
+	ok = True
+	for regex, replacement in file_patterns:
+		text, count = regex.subn(replacement, text)
+		if count == 0:
+			print(f"  {name}: WARNING: no match for /{regex.pattern}/")
+			ok = False
+		else:
+			print(f"  {name}: {count}x /{regex.pattern}/")
+	return text, ok
+
+
 def patch_file(path, file_patterns):
 	"""Apply `file_patterns` to one file. The pristine original is kept at
 	<name>.orig-font and is re-read as the input on every run. Returns True
-	when every pattern matched; prints a warning for each that did not (the
-	signal that an extension update changed the minified code)."""
+	when every pattern matched."""
 	if not path.is_file():
 		print(f"  {path.name}: missing, skipped")
 		return False
@@ -357,28 +408,37 @@ def patch_file(path, file_patterns):
 	else:
 		text = path.read_text(encoding="utf-8")
 		backup.write_text(text, encoding="utf-8")
-	ok = True
-	for regex, replacement in file_patterns:
-		text, count = regex.subn(replacement, text)
-		if count == 0:
-			print(f"  {path.name}: WARNING: no match for /{regex.pattern}/")
-			ok = False
-		else:
-			print(f"  {path.name}: {count}x /{regex.pattern}/")
+	text, ok = apply_patterns(path.name, text, file_patterns)
+	path.write_text(text, encoding="utf-8")
+	return ok
+
+
+def create_file(path: Path, source: Path, file_patterns: list[tuple[re.Pattern[str], str]]) -> bool:
+	"""Write the file `path`: the extension file `source` with
+	`file_patterns` applied. Returns True when every pattern matched."""
+	if not source.is_file():
+		print(f"  {path.name}: its source {source.name} is missing, skipped")
+		return False
+	text, ok = apply_patterns(path.name, source.read_text(encoding="utf-8"), file_patterns)
 	path.write_text(text, encoding="utf-8")
 	return ok
 
 
 def undo_dir(ext_dir):
-	"""Restore every .orig-font backup under `ext_dir` and delete it."""
+	"""Restore every .orig-font backup under `ext_dir` and delete it, and
+	delete the CREATED_FILES."""
 	backups = list(ext_dir.rglob(f"*{BACKUP_SUFFIX}"))
-	if not backups:
+	created = [ext_dir / rel for rel in CREATED_FILES if (ext_dir / rel).exists()]
+	if not backups and not created:
 		print("  nothing to undo")
 	for backup in backups:
 		original = backup.with_name(backup.name.removesuffix(BACKUP_SUFFIX))
 		original.write_bytes(backup.read_bytes())
 		backup.unlink()
 		print(f"  restored {original.name}")
+	for path in created:
+		path.unlink()
+		print(f"  deleted {path.name}")
 
 
 def main() -> None:
@@ -399,6 +459,9 @@ def main() -> None:
 		results = [
 			patch_file(ext_dir / rel, file_patterns)
 			for rel, file_patterns in patterns(mythos).items()
+		] + [
+			create_file(ext_dir / rel, ext_dir / source, file_patterns)
+			for rel, (source, file_patterns) in CREATED_FILES.items()
 		]
 		if interpreter:
 			results.append(patch_interpreter(ext_dir / NATIVE_BINARY, interpreter))
