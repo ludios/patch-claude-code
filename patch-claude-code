@@ -161,6 +161,9 @@ def models_fixup(lineup: list[tuple[str, str]]) -> str:
 	just their names. A lineup row the CLI left out is built from its
 	STAND_INS row, unless the CLI listed it as unavailable."""
 	stand_ins = {model: STAND_INS[model] for model, _ in lineup if model in STAND_INS}
+	# Besides the lineup rows, the CLI lists only the Default row and the
+	# session's model, so a stand-in copied from any other row would vanish.
+	assert set(stand_ins.values()) <= {model for model, _ in lineup}, stand_ins
 	return (
 		"(r)=>{let m=r?.models;if(!Array.isArray(m))return r;"
 		f"let L={js_literal(lineup)},S={js_literal(stand_ins)},u=r.unavailable_models??[],"
