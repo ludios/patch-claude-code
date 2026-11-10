@@ -14,6 +14,8 @@ Welcome. Before starting or resuming work, check what `hostname` outputs.
 - If it ends in "clank", run whatever commands you need.
 - Otherwise, stop and ask the user to edit this file.
 
+If this machine is too overloaded for benchmarks, ssh into `aclank`.
+
 # Environment
 
 All thinking is hidden from the user, so if you find anything they may wish to know about, please write to the output.
@@ -98,7 +100,7 @@ When writing _any_ kind of code, including for the above:
 
   Otherwise, plain functions are generally fine.
 
-Minutae:
+Minutiae:
 
 - Block contents should not be on the same line that opened the block.
 - Put `return`, `continue`, `break`, `raise`, `yield`, `await` statements on their own line so that they're obvious.
@@ -183,7 +185,7 @@ Automatically commit your changes with this commit template:
 
 	A longer description or explanation of why/what is changing, when it is genuinely helpful.
 
-	Model-output: model name e.g. Claude Mythos 5.1
+	Model-output: model name e.g. Claude Mythos 5.2
 
 	Session-file: ~/.claude/projects/[...]/[...].jsonl
 
