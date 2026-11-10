@@ -123,10 +123,10 @@ MODEL_LINEUP = [
 # account-dependent default.
 DEFAULT_MODEL = "claude-opus-5-5"
 # {model ID: model ID} of lineup rows built when the CLI leaves them out,
-# and the row each copies its capabilities (effort levels, adaptive
-# thinking, fast mode, ...) from; the CLI's model catalog gives each
-# pair the same ones. The CLI hides Mythos whenever it lacks the server's
-# model list.
+# and the lineup row each copies its picker fields (supportedEffortLevels,
+# supportsFastMode and the other supports* fields) from. For each pair,
+# the CLI's model catalog gives both models the same values in those
+# fields. The CLI hides Mythos whenever it lacks the server's model list.
 STAND_INS = {MYTHOS: "claude-fable-5-2"}
 
 
