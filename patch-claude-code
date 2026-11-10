@@ -111,11 +111,10 @@ FONT_SIZE = r"(?<![\w-])font-size:"
 MONO_FAMILY = r"var\(--app-(?:monospace-font-family|font-family-mono)\)"
 
 # The model picker's rows, in order, as (model ID, label).
-MYTHOS = "claude-mythos-5-1"
+MYTHOS = "claude-mythos-5-2"
 MODEL_LINEUP = [
-	(MYTHOS,             "Mythos 5.1"),
-	("claude-fable-5-1", "Fable 5.1"),
-	("claude-fable-5",   "Fable 5"),
+	(MYTHOS,             "Mythos 5.2"),
+	("claude-fable-5-2", "Fable 5.2"),
 	("claude-opus-5-5",  "Opus 5.5"),
 	("claude-opus-4-8",  "Opus 4.8"),
 	("claude-opus-4-6",  "Opus 4.6"),
@@ -125,10 +124,10 @@ MODEL_LINEUP = [
 DEFAULT_MODEL = "claude-opus-5-5"
 # {model ID: model ID} of lineup rows built when the CLI leaves them out,
 # and the row each copies its capabilities (effort levels, adaptive
-# thinking, no fast mode, ...) from; the CLI's model catalog gives each
+# thinking, fast mode, ...) from; the CLI's model catalog gives each
 # pair the same ones. The CLI hides Mythos whenever it lacks the server's
 # model list.
-STAND_INS = {MYTHOS: "claude-fable-5-1"}
+STAND_INS = {MYTHOS: "claude-fable-5-2"}
 
 
 def js_literal(value: object) -> str:
