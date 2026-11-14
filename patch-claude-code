@@ -291,8 +291,10 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			# Launch the chat's CLI with the model lineup as its picker and
 			# DEFAULT_MODEL as its default. The SDK passes these as
 			# --settings, which win over ~/.claude/settings.json's (but
-			# leave its other env entries and keys alone).
-			(re.compile(r'(?=settingSources:\["user","project","local"\],toolConfig:)'),
+			# leave its other env entries and keys alone). The chat's
+			# options are the ones whose settingSources depend on whether
+			# the workspace is trusted.
+			(re.compile(r'(?=settingSources:\[\.\.\.[\w$]+\.kind==="trusted"\?)'),
 			 "settings:" + cli_settings(lineup) + ","),
 			# Fix up the model rows in the SDK's initialize(), where every
 			# model list the extension (and so the webview) sees comes from.
