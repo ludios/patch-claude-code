@@ -51,8 +51,9 @@ surfaces hardcode their own sizes besides. This script patches:
                        digits); set the text of assistant replies at a line
                        height of 1.6 (in dark, non-high-contrast themes, in
                        #bbb, a little dimmer than Dark Modern's text), with
-                       1em between adjacent paragraphs that are not in a
-                       list or a quote, and with inline code in the color
+                       headings at weight 600 instead of bold, with 1em
+                       between adjacent paragraphs that are not in a list
+                       or a quote, and with inline code in the color
                        and at the x-height of the text around it, and with
                        no background or padding; draw VS Code's square
                        scrollbars instead of Chrome's, with vertical ones
@@ -343,8 +344,12 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			# (so not those in a list item or a quote) are 1em apart instead
 			# of .2em: as far apart as the browser's default margins put a
 			# top-level list from the paragraphs around it. Headings in the
-			# text are semibold (600, as in VS Code's markdown preview)
-			# instead of the browser's bold (700). In dark,
+			# text get a font-weight of 600 (as in the stylesheet of VS
+			# Code's markdown preview) instead of the browser's 700, which
+			# TEXT_FONT draws in its SemiBold face; a font with no face
+			# between Regular and Bold may draw 600 as either. Bold text in
+			# a heading (such as all of `## **Title**`) gets the heading's
+			# weight, not the 900 of the browser's `bolder`. In dark,
 			# non-high-contrast themes, the text is #bbb (a little dimmer
 			# than the #ccc text of VS Code's Dark Modern), unless the reply
 			# failed (and so is in the theme's error color). Its inline code
@@ -366,6 +371,7 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			 + REPLY_TEXT + " pre{line-height:1.5}"
 			 + REPLY_TEXT + ">p+p{margin-top:1em}"
 			 + REPLY_TEXT + " :is(h1,h2,h3,h4,h5,h6){font-weight:600}"
+			 + REPLY_TEXT + " :is(h1,h2,h3,h4,h5,h6) strong{font-weight:inherit}"
 			 + ".vscode-dark " + REPLY + r":not([class*=failedReply_])>.root_\2{color:#bbb}"
 			 + REPLY_TEXT + " code:not([class],pre *){color:inherit;background:none;padding:0"
 			 + ";font-size:2ex;font-size-adjust:.5;line-height:1}"),
