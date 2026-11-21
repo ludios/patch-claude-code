@@ -3,6 +3,7 @@ leaves no half-written file that a later run would trust."""
 
 import importlib.machinery
 import importlib.util
+import os
 import re
 from pathlib import Path
 
@@ -25,17 +26,20 @@ def load_patcher() -> object:
 patcher = load_patcher()
 
 
-def interrupt_fsync(monkeypatch: pytest.MonkeyPatch, call: int) -> None:
-	"""Make the `call`-th (counting from 1) os.fsync from now on raise
-	KeyboardInterrupt, as if the user hit Ctrl-C after a file's data was
-	written but before it was renamed into place."""
+class Interrupted(BaseException):
+	"""The simulated interruption. Like KeyboardInterrupt, it is not an
+	Exception, but pytest does not take it as the user stopping the tests."""
+
+
+def interrupt_write(monkeypatch: pytest.MonkeyPatch, path: Path) -> None:
+	"""Make the patcher's next write of `path` raise Interrupted once that
+	write's data is in the .patching file but before it is renamed over
+	`path`, as if the user hit Ctrl-C there."""
+	temp = str(path.resolve().with_name(path.name + patcher.TEMP_SUFFIX))
 	real_fsync = patcher.os.fsync
-	calls = 0
 	def fsync(fd: int) -> None:
-		nonlocal calls
-		calls += 1
-		if calls == call:
-			raise KeyboardInterrupt
+		if os.readlink(f"/proc/self/fd/{fd}") == temp:
+			raise Interrupted
 		real_fsync(fd)
 	monkeypatch.setattr(patcher.os, "fsync", fsync)
 
@@ -53,12 +57,17 @@ def backup_of(path: Path) -> Path:
 	return path.with_name(path.name + patcher.BACKUP_SUFFIX)
 
 
+def assert_no_temp_files(directory: Path) -> None:
+	assert not list(directory.glob(f"*{patcher.TEMP_SUFFIX}"))
+
+
 def test_interrupted_backup_write_leaves_no_backup(target: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-	interrupt_fsync(monkeypatch, call=1)
-	with pytest.raises(KeyboardInterrupt):
+	interrupt_write(monkeypatch, backup_of(target))
+	with pytest.raises(Interrupted):
 		patcher.patch_file(target, PATTERNS)
 	assert not backup_of(target).exists()
 	assert target.read_bytes() == ORIGINAL
+	assert_no_temp_files(target.parent)
 
 	monkeypatch.undo()
 	assert patcher.patch_file(target, PATTERNS)
@@ -67,15 +76,31 @@ def test_interrupted_backup_write_leaves_no_backup(target: Path, monkeypatch: py
 
 
 def test_interrupted_patched_write_leaves_original_whole(target: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-	interrupt_fsync(monkeypatch, call=2)
-	with pytest.raises(KeyboardInterrupt):
+	interrupt_write(monkeypatch, target)
+	with pytest.raises(Interrupted):
 		patcher.patch_file(target, PATTERNS)
 	assert backup_of(target).read_bytes() == ORIGINAL
 	assert target.read_bytes() == ORIGINAL
+	assert_no_temp_files(target.parent)
 
 	monkeypatch.undo()
 	assert patcher.patch_file(target, PATTERNS)
 	assert target.read_bytes() == PATCHED
+
+
+def test_interrupted_undo_keeps_backup(target: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+	assert patcher.patch_file(target, PATTERNS)
+	interrupt_write(monkeypatch, target)
+	with pytest.raises(Interrupted):
+		patcher.undo_dir(target.parent)
+	assert backup_of(target).read_bytes() == ORIGINAL
+	assert target.read_bytes() == PATCHED
+	assert_no_temp_files(target.parent)
+
+	monkeypatch.undo()
+	patcher.undo_dir(target.parent)
+	assert not backup_of(target).exists()
+	assert target.read_bytes() == ORIGINAL
 
 
 def test_write_atomically_keeps_permission_bits(target: Path) -> None:

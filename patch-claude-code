@@ -86,17 +86,17 @@ surfaces hardcode their own sizes besides. This script patches:
                        not exist there
 
 There is no load-time integrity check on these files (VS Code verifies
-extension signatures only at install time), so editing them in place is
-sufficient. The pristine originals are kept as .orig-font backups and re-read
-as the input on every run, so re-running (even with newly added patterns) is
-idempotent. Every file is written whole to a .patching file and then renamed
-into place, so an interrupted run leaves no half-written file (in particular,
-no truncated backup). Re-run after every extension update, then reload the
-VS Code window; run with --undo to restore the originals and delete the
-created files. The native binary gets no backup (it is ~300 MB) and --undo
-leaves its interpreter alone, since the binary cannot run on NixOS without
-it. Pass --no-mythos to leave Mythos out of the model lineup, for accounts
-without access to it.
+extension signatures only at install time), so changing them where they are
+installed is sufficient. The pristine originals are kept as .orig-font
+backups and re-read as the input on every run, so re-running (even with
+newly added patterns) is idempotent. Every file is written whole to a
+.patching file and then renamed into place, so an interrupted run leaves no
+half-written file (in particular, no truncated backup). Re-run after every
+extension update, then reload the VS Code window; run with --undo to
+restore the originals and delete the created files. The native binary gets
+no backup (it is ~300 MB) and --undo leaves its interpreter alone, since
+the binary cannot run on NixOS without it. Pass --no-mythos to leave Mythos
+out of the model lineup, for accounts without access to it.
 
 Usage: patch-claude-code [--undo] [--no-mythos]
 """
@@ -599,18 +599,29 @@ def patch_interpreter(path: Path, interpreter: str) -> bool:
 
 def write_atomically(path: Path, data: bytes) -> None:
 	"""Make `data` the contents of the file at `path`: write it to a sibling
-	<name>.patching file, flush it to disk, and rename that over `path`. An
-	interrupted run thus leaves at `path` either its old contents (or no
-	file) or all of `data`, never a part of `data`. The new file keeps the
+	<name>.patching file, flush it to disk, rename that over `path`, and
+	flush the rename to disk. An interrupted run or a crash thus leaves at
+	`path` either its old contents (or no file) or all of `data`, never a
+	part of `data`; and once this returns, a crash cannot undo it. A write
+	that fails deletes its .patching file. The new file keeps the
 	permission bits of the file it replaces (if there was one)."""
 	temp = path.with_name(path.name + TEMP_SUFFIX)
-	with temp.open("wb") as f:
-		f.write(data)
-		f.flush()
-		os.fsync(f.fileno())
-	if path.exists():
-		temp.chmod(path.stat().st_mode)
-	temp.replace(path)
+	try:
+		with temp.open("wb") as f:
+			f.write(data)
+			f.flush()
+			os.fsync(f.fileno())
+		if path.exists():
+			temp.chmod(path.stat().st_mode)
+		temp.replace(path)
+	except BaseException:
+		temp.unlink(missing_ok=True)
+		raise
+	directory = os.open(path.parent, os.O_RDONLY)
+	try:
+		os.fsync(directory)
+	finally:
+		os.close(directory)
 
 
 def apply_patterns(name: str, text: str, file_patterns: list[tuple[re.Pattern[str], Replacement]]) -> tuple[str, bool]:
