@@ -420,13 +420,19 @@
 
 		/**
 		 * @param {HTMLAnchorElement} link
-		 * @returns {string} the selected part of `link`, as a markdown link
-		 *   (or as its bare text, when that text is the link's address)
+		 * @returns {string} the selected part of `link`, as a markdown link,
+		 *   or as just its text when it has no address, when its selected
+		 *   text is only whitespace, or when GFM makes the same link of that
+		 *   text by itself
 		 */
 		link(link) {
 			const text = this.inline(link);
 			const href = link.getAttribute("href");
-			if (!href || text.trim() === "" || href === text || href === "mailto:" + text)
+			if (!href || text.trim() === "")
+				return text;
+			// GFM links a bare web address (leaving out punctuation at its
+			// end) and a bare email address.
+			if (href === text && /^https?:\/\/[^\s<>]*[\w/]$/.test(href) || href === "mailto:" + text)
 				return text;
 			return `[${text}](${/[\s()<>]/.test(href) ? `<${href}>` : href})`;
 		}

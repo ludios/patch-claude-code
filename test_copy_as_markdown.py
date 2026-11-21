@@ -119,6 +119,10 @@ CASES = [
 		"| Left   | Mid   | Right | None |\n"
 		"| :----- | :---: | ----: | ---- |\n"
 		"| `x\\|y` | **b** | c     |      |"),
+	Case("links", markdown(
+		'<p><a href="README.md">README.md</a>, <a href="https://x.test/a.">https://x.test/a.</a>,'
+		' <a href="https://x.test/b">https://x.test/b</a></p>'),
+		"[README.md](README.md), [https://x.test/a.](https://x.test/a.), https://x.test/b"),
 	Case("hard line break", markdown('<p>Hard<br>\nbreak</p>'),
 		"Hard  \nbreak"),
 	Case("quote and rule", markdown(
