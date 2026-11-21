@@ -339,7 +339,9 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			# keep the chat's 1.5). Adjacent paragraphs directly in one root
 			# (so not those in a list item or a quote) are 1em apart instead
 			# of .2em: as far apart as the browser's default margins put a
-			# top-level list from the paragraphs around it. In dark,
+			# top-level list from the paragraphs around it. Headings in the
+			# text are semibold (600, as in VS Code's markdown preview)
+			# instead of the browser's bold (700). In dark,
 			# non-high-contrast themes, the text is #bbb (a little dimmer
 			# than the #ccc text of VS Code's Dark Modern), unless the reply
 			# failed (and so is in the theme's error color). Its inline code
@@ -360,6 +362,7 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			 + REPLY_TEXT + "{line-height:1.6}"
 			 + REPLY_TEXT + " pre{line-height:1.5}"
 			 + REPLY_TEXT + ">p+p{margin-top:1em}"
+			 + REPLY_TEXT + " :is(h1,h2,h3,h4,h5,h6){font-weight:600}"
 			 + ".vscode-dark " + REPLY + r":not([class*=failedReply_])>.root_\2{color:#bbb}"
 			 + REPLY_TEXT + " code:not([class],pre *){color:inherit;background:none;padding:0"
 			 + ";font-size:2ex;font-size-adjust:.5;line-height:1}"),
