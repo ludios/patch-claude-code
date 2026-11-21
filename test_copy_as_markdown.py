@@ -25,6 +25,8 @@ ROOT = "root_test"
 # webview_copies.
 OWN_PLAIN = "own"
 OWN_HTML  = "<b>own</b>"
+# The webview's rules that change what a copy gives.
+WEBVIEW_CSS = f".{ROOT} p {{white-space: pre-wrap}}"
 CODE_BLOCK = (
 	'<div class="codeBlockWrapper"><button class="copyButton" style="opacity:0">'
 	'<svg viewBox="0 0 16 16"><path d="M0 0h16v16z"></path></svg></button>'
@@ -77,7 +79,7 @@ CASES = [
 		+ CODE_BLOCK.format(language="python", code='<span class="tok">def</span> f():\n    return 1\n')
 		+ '\n<hr>\n<p>Done.</p>'),
 		"## Plan\n\n"
-		"Use **bold**, *em*, ~~old~~, ``a`b``, `  a `, [a link](<https://example.com/x_(y)>),"
+		"Use **bold**, *em*, ~~old~~, ``a`b``, `  a `,\n[a link](<https://example.com/x_(y)>),"
 		" https://example.com and me@example.com.\n\n"
 		"- **Fix**: handled `None` in [main.py](src/main.py)\n\n"
 		"```python\ndef f():\n    return 1\n```\n\n"
@@ -163,7 +165,7 @@ def page(cases: list[Case]) -> str:
 	{error}."""
 	body = "\n".join(f'<div class="case">{case.html}</div>' for case in cases)
 	specs = json.dumps([asdict(case) | {"html": None} for case in cases])
-	return f"""<!doctype html><html><head><meta charset="utf-8"></head><body>
+	return f"""<!doctype html><html><head><meta charset="utf-8"><style>{WEBVIEW_CSS}</style></head><body>
 {body}
 <script>{SCRIPT.read_text(encoding="utf-8")}(".{ROOT}");</script>
 <script>

@@ -178,14 +178,15 @@
 		 * @param {Text} node  a selected text node
 		 * @returns {string} the selected part of `node`'s text, with each run
 		 *   of whitespace collapsed to one space where the page collapses it
-		 *   (and dropped at the start of a line)
 		 */
 		text(node) {
-			const text = this.slice(node);
-			if (getComputedStyle(node.parentElement).whiteSpaceCollapse !== "collapse")
-				return text;
-			const collapsed = text.replace(/[ \t\n\r\f]+/g, " ");
-			return node.previousSibling?.nodeName === "BR" ? collapsed.replace(/^ /, "") : collapsed;
+			let text = this.slice(node);
+			if (getComputedStyle(node.parentElement).whiteSpaceCollapse === "collapse")
+				text = text.replace(/[ \t\n\r\f]+/g, " ");
+			// A <br> already makes a line break, so the newline that the
+			// renderer puts after one (a space, where whitespace collapses)
+			// is left out.
+			return node.previousSibling?.nodeName === "BR" ? text.replace(/^[ \n]/, "") : text;
 		}
 
 		/**
