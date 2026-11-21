@@ -48,9 +48,9 @@ surfaces hardcode their own sizes besides. This script patches:
                        (in dark, non-high-contrast themes, in #bbb, a
                        little dimmer than Dark Modern's text), with 1em
                        between adjacent paragraphs that are not in a list
-                       or a quote, and with inline code in the color of
-                       the text around it and with no background or
-                       padding; draw VS Code's square
+                       or a quote, and with inline code in the color and
+                       at the x-height of the text around it, and with no
+                       background or padding; draw VS Code's square
                        scrollbars instead of Chrome's, as wide as the
                        editor's, and keep the fade at the bottom of the
                        chat off its scrollbar; wrap the command in a Bash
@@ -114,6 +114,9 @@ EDITOR_FAMILY = "var(--vscode-editor-font-family)"
 # installed where VS Code draws its window (with Remote SSH, the client);
 # where it is not, the chat font is used.
 TEXT_FONT = 'InterDisplay,"Inter Display"'
+# The x-height of TEXT_FONT, as a fraction of its font size (Inter Display
+# 4.1's OS/2 sxHeight, 1056 of 2048 units per em).
+TEXT_FONT_X_HEIGHT = ".5156"
 # A selector for assistant replies, and one (in an re.subn replacement
 # string, with the markdown component's CSS-module hash as group 2) for the
 # text in them.
@@ -301,19 +304,22 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			# non-high-contrast themes, the text is #bbb (a little dimmer
 			# than the #ccc text of VS Code's Dark Modern), unless the reply
 			# failed (and so is in the theme's error color). Its inline code
-			# (code without a class; the "★ Insight" header and footer and
-			# fenced code have one) gets no background, no padding (whose
-			# vertical part, at display scales such as 125%, also drew the
-			# code a device pixel below the text's baseline), and the color
+			# (code outside a <pre> and without a class; the "★ Insight"
+			# header and footer have one) gets no background, no padding
+			# (whose vertical part, at display scales such as 125%, also drew
+			# the code a device pixel below the text's baseline), the color
 			# of the text around it instead of the theme's color for
-			# preformatted text (yellow in some dark themes).
+			# preformatted text (yellow in some dark themes), and, instead of
+			# the editor's font size, the size at which its x-height is that
+			# of the text around it (where TEXT_FONT is installed).
 			(re.compile(r"(\.root_([\w-]+) code\{[^}]*var\(--app-inline-code-foreground\)[^}]*\})"),
 			 r"\1"
 			 + REPLY_TEXT + "{line-height:1.6}"
 			 + REPLY_TEXT + " pre{line-height:1.5}"
 			 + REPLY_TEXT + ">p+p{margin-top:1em}"
 			 + ".vscode-dark " + REPLY + r":not([class*=failedReply_])>.root_\2{color:#bbb}"
-			 + REPLY_TEXT + " code:not([class]){color:inherit;background:none;padding:0}"),
+			 + REPLY_TEXT + " code:not([class],pre *){color:inherit;background:none;padding:0"
+			 + ";font-size:1em;font-size-adjust:" + TEXT_FONT_X_HEIGHT + "}"),
 			# VS Code's webview host styles scrollbars with ::-webkit-scrollbar
 			# rules (square, 10px wide, in its scrollbarSlider colors), but
 			# also sets scrollbar-color on html, and Chrome ignores those
