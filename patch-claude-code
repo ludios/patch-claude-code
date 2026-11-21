@@ -45,9 +45,11 @@ surfaces hardcode their own sizes besides. This script patches:
                        the chat font in Inter Display instead, and the
                        text of assistant replies at a line height of 1.6
                        (in dark, non-high-contrast themes, in #bbb, a
-                       little dimmer than Dark Modern's text), with inline
-                       code in the color of the text around it and with no
-                       background or padding; draw VS Code's square
+                       little dimmer than Dark Modern's text), with 1em
+                       between adjacent paragraphs that are not in a list
+                       or a quote, and with inline code in the color of
+                       the text around it and with no background or
+                       padding; draw VS Code's square
                        scrollbars instead of Chrome's, as wide as the
                        editor's, and keep the fade at the bottom of the
                        chat off its scrollbar; wrap the command in a Bash
@@ -261,20 +263,24 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			# attribute, which is newer). The component's CSS-module hash is
 			# captured from its inline-code rule. The text gets VS Code's
 			# markdown preview's default line height of 1.6 (its code blocks
-			# keep the chat's 1.5), and in dark, non-high-contrast themes, is
-			# #bbb (a little dimmer than the #ccc text of VS Code's Dark
-			# Modern), unless the reply failed (and so is in the theme's
-			# error color). Its inline code (code without a class; the
-			# "★ Insight" header and footer and fenced code have one) gets no
-			# background, no padding (whose vertical part, at display scales
-			# such as 125%, also drew the code a device pixel below the
-			# text's baseline), and the color of the text around it instead
-			# of the theme's color for preformatted text (yellow in some dark
-			# themes).
+			# keep the chat's 1.5). Adjacent paragraphs directly in the text
+			# (so not those in a list item or a quote) get 1em between them,
+			# instead of .2em, which is how far the browser's default margins
+			# put a list from the paragraphs around it. In dark,
+			# non-high-contrast themes, the text is #bbb (a little dimmer
+			# than the #ccc text of VS Code's Dark Modern), unless the reply
+			# failed (and so is in the theme's error color). Its inline code
+			# (code without a class; the "★ Insight" header and footer and
+			# fenced code have one) gets no background, no padding (whose
+			# vertical part, at display scales such as 125%, also drew the
+			# code a device pixel below the text's baseline), and the color
+			# of the text around it instead of the theme's color for
+			# preformatted text (yellow in some dark themes).
 			(re.compile(r"(\.root_([\w-]+) code\{[^}]*var\(--app-inline-code-foreground\)[^}]*\})"),
 			 r"\1"
 			 + REPLY_TEXT + "{line-height:1.6}"
 			 + REPLY_TEXT + " pre{line-height:1.5}"
+			 + REPLY_TEXT + ">p+p{margin-top:1em}"
 			 + ".vscode-dark " + REPLY + r":not([class*=failedReply_])>.root_\2{color:#bbb}"
 			 + REPLY_TEXT + " code:not([class]){color:inherit;background:none;padding:0}"),
 			# VS Code's webview host styles scrollbars with ::-webkit-scrollbar
