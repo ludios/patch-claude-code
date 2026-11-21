@@ -92,7 +92,8 @@ surfaces hardcode their own sizes besides. This script patches:
                        links a link to COMMIT_SCHEME + the ID, keep those
                        addresses through react-markdown's URL sanitizing,
                        and have a click on such a link ask the extension
-                       to open its address
+                       to open its address, and its "Copy Link" copy the
+                       ID
   resources/native-binary/claude
                      - on NixOS only: point its ELF interpreter at the
                        system's dynamic loader (taken from
@@ -580,6 +581,13 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			# like the app's own openURL.
 			(re.compile(r"(?<=fileOpener=\{)(?=open:\(([\w$]+),([\w$]+)\)=>\{let ([\w$]+)=this\.comms\.connection\.value;)"),
 			 "openURL:(url)=>{this.comms.connection.value?.openURL(url)},"),
+			# Right-clicking a markdown link opens a menu whose one item,
+			# "Copy Link", copies the link's address; have it copy a commit
+			# link's ID instead (the function that it calls when clicked
+			# comes right before the menu's markup).
+			(re.compile(r'(function [\w$]+\(\)\{navigator\.clipboard\.writeText\()([\w$]+)'
+			            r'(?=\),[\w$]+\(\)\}return [\w$]+\("div",\{ref:[\w$]+,className:[\w$]+\.contextMenu,[^;]*children:"Copy Link")'),
+			 r"\1\2.startsWith(" + scheme + r")?\2.slice(" + str(len(COMMIT_SCHEME)) + r"):\2"),
 		],
 		"extension.js": [
 			# Feed the webview override from editor.* instead of chat.editor.*
