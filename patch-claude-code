@@ -7,9 +7,10 @@ and scrolls with the rest of the chat instead of staying pinned to its top,
 so its chat-font text is set in Inter Display, and the text of
 assistant replies is restyled for easier reading, so its scrollbars look
 like VS Code's own, so a Bash (or PowerShell) tool call's command wraps
-instead of being cut off at the edge, so a chat's editor tab shows a
-spinning logo while its session runs, and, on NixOS, so its native binary
-can run at all.
+instead of being cut off at the edge, so most tool calls' clipped input and
+output say how many lines they hide instead of fading out, so a chat's
+editor tab shows a spinning logo while its session runs, and, on NixOS, so
+its native binary can run at all.
 
 VS Code injects the real editor font into every webview as the
 --vscode-editor-font-family / --vscode-editor-font-size (px) CSS variables,
@@ -53,7 +54,10 @@ surfaces hardcode their own sizes besides. This script patches:
                        scrollbars instead of Chrome's, as wide as the
                        editor's, and keep the fade at the bottom of the
                        chat off its scrollbar; wrap the command in a Bash
-                       (or PowerShell) tool call's IN row
+                       (or PowerShell) tool call's IN row; show exactly 3
+                       lines, without the fade, of a tool row's cell that
+                       says how many lines it hides (see index.js), and
+                       that count under it
   webview/index.js   - pass the family variable into the embedded Monaco
                        diff editors (they already take their size from the
                        size variable); hide the model picker's Default row,
@@ -62,7 +66,9 @@ surfaces hardcode their own sizes besides. This script patches:
                        input footer's prompt-cache clock, and keep that count
                        through API errors; stop pinning each prompt to the
                        top of the chat while its turn scrolls by, and show
-                       it in full instead of behind "Show more"
+                       it in full instead of behind "Show more"; make the
+                       component that draws most tool rows' IN and OUT
+                       cells say how many lines it hides
   resources/native-binary/claude
                      - on NixOS only: point its ELF interpreter at the
                        system's dynamic loader (taken from
@@ -206,6 +212,31 @@ def models_fixup(lineup: list[tuple[str, str]]) -> str:
 	)
 
 
+def count_hidden_lines(cell: str) -> str:
+	"""Return a JS effect callback for a tool row's clipped cell. While the
+	cell hides N lines of its text, it keeps the row's data-pcc-more
+	attribute set to "(N more lines)"; while the cell hides none, it keeps
+	the attribute absent. `cell` is a JS expression for the cell element,
+	evaluated when the effect runs; the row is the cell's parent. Lines are
+	as tall as the line height of the cell's first <pre>, if any, else of
+	the cell itself. The effect leaves the attribute in place when cleaned
+	up, so it doesn't blink while the cell re-renders (a row and its cell
+	unmount together)."""
+	return (
+		f"()=>{{let pccCell={cell},pccRow=pccCell?.parentElement;if(!pccRow)return;"
+		"let pccCount=()=>{"
+		'let pccLine=parseFloat(getComputedStyle(pccCell.querySelector("pre")??pccCell).lineHeight),'
+		"pccHidden=pccCell.scrollHeight-pccCell.clientHeight,"
+		"pccLines=pccHidden>1&&pccLine>0?Math.ceil((pccHidden-1)/pccLine):0;"
+		'if(pccLines>0)pccRow.dataset.pccMore=`(${pccLines} more line${pccLines===1?"":"s"})`;'
+		"else delete pccRow.dataset.pccMore},"
+		"pccObserver=new ResizeObserver(pccCount);"
+		"pccObserver.observe(pccCell);"
+		"for(let pccChild of pccCell.children)pccObserver.observe(pccChild);"
+		"return()=>pccObserver.disconnect()}"
+	)
+
+
 def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 	"""Return {relative file path: [(compiled regex, replacement)]} for one
 	extension directory. Replacements are re.subn replacement strings.
@@ -318,6 +349,16 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			# lines instead. (The row's cell still clips its height.)
 			(re.compile(r"(\.inputRow_([\w-]+)\{[^}]*\})"),
 			 r"\1.inputRow_\2 pre{white-space:pre-wrap}"),
+			# A tool row's cell that says how many lines it hides (see the
+			# pccCounted JS) shows exactly 3 lines of its text, without the
+			# fade over a partly cut-off third line: its text is usually a
+			# <pre> in the editor font size, at the chat's line height of
+			# 1.5. The count goes under the cell, as a grid item of the row.
+			(re.compile(r"(\.toolBodyRowContent_([\w-]+):not\(\.toolBodyRowContent_disableClipping_\2\)\{[^}]*\})"),
+			 r"\1.toolBodyRowContent_\2.pccCounted:not(.toolBodyRowContent_disableClipping_\2)"
+			 + "{mask-image:none;max-height:calc(4.5*" + EDITOR_SIZE + ")}"
+			 + r".toolBodyRow_\2[data-pcc-more]::after"
+			 + "{content:attr(data-pcc-more);grid-column:2;padding:0 4px 4px;color:var(--app-secondary-foreground)}"),
 		],
 		"webview/index.js": [
 			# The two embedded Monaco diff editors (chat diffs and previews).
@@ -376,6 +417,20 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			(re.compile(r'(expandableContainer:"expandableContainer_[\w-]+"[^}]*\};'
 			            r"function [\w$]+\(\{children:[\w$]+,maxHeight:([\w$]+)=\d+\}\)\{)"),
 			 r"\1\2=1/0;"),
+			# Most tool rows' IN and OUT cells (those of Bash, among others)
+			# are drawn by one component, which clips its content and fades
+			# out the bottom of what's left. Have it say how many lines it
+			# hides, under the cell (see count_hidden_lines and the
+			# toolBodyRow CSS), and mark its cell as one that does, so that
+			# the CSS can drop the fade from such cells only. The component
+			# is found by its props; it runs one effect already (which makes
+			# the cell clickable when it clips anything), and gets another,
+			# which re-runs whenever its content does.
+			(re.compile(r"(function [\w$]+\(\{onOpen:[\w$]+,alwaysOpens:[\w$]+,children:([\w$]+)\}\)\{"
+			            r"let ([\w$]+)=[\w$]+\(null\),[^;]*;return )([\w$]+)\("),
+			 r"\1\4(" + count_hidden_lines(r"\3.current") + r",[\2]),\4("),
+			(re.compile(r"(\{ref:[\w$]+,className:[\w$]+\.toolBodyRowContent)(?=,)"),
+			 r'\1+" pccCounted"'),
 		],
 		"extension.js": [
 			# Feed the webview override from editor.* instead of chat.editor.*
