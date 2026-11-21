@@ -229,15 +229,16 @@ def models_fixup(lineup: list[tuple[str, str]]) -> str:
 
 
 def count_hidden_lines(cell: str) -> str:
-	"""Return a JS effect callback for a tool row's clipped cell. While the
-	cell hides N lines of its text, it keeps the row's data-pcc-more
-	attribute set to "(N more lines)"; while the cell hides none, it keeps
+	"""Return a JS effect callback for a tool call's clipped cell. While the
+	cell hides N lines of its text, the callback keeps the data-pcc-more
+	attribute of the cell's parent (a tool row, or for the Write tool, the
+	tool body) set to "(N more lines)"; while the cell hides none, it keeps
 	the attribute absent. `cell` is a JS expression for the cell element,
-	evaluated when the effect runs; the row is the cell's parent. Lines are
-	as tall as the line height of the cell's first <pre>, if any, else of
-	the cell itself. The effect leaves the attribute in place when cleaned
-	up, so it doesn't blink while the cell re-renders (a row and its cell
-	unmount together)."""
+	evaluated when the effect runs. Lines are as tall as the line height of
+	the cell's first <pre>, if any, else of the cell itself. When cleaned
+	up, the effect removes the attribute only if the cell has left the
+	document; otherwise, the effect is about to run again for the cell's
+	new children, and keeping the attribute stops the count from blinking."""
 	return (
 		f"()=>{{let pccCell={cell},pccRow=pccCell?.parentElement;if(!pccRow)return;"
 		"let pccCount=()=>{"
@@ -249,7 +250,7 @@ def count_hidden_lines(cell: str) -> str:
 		"pccObserver=new ResizeObserver(pccCount);"
 		"pccObserver.observe(pccCell);"
 		"for(let pccChild of pccCell.children)pccObserver.observe(pccChild);"
-		"return()=>pccObserver.disconnect()}"
+		"return()=>{pccObserver.disconnect();if(!pccCell.isConnected)delete pccRow.dataset.pccMore}}"
 	)
 
 
@@ -377,12 +378,13 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			# pccCounted JS) shows exactly 3 lines of its text, without the
 			# fade over a partly cut-off third line: its text is usually a
 			# <pre> in the editor font size, at the chat's line height of
-			# 1.5. The count goes under the cell, as a grid item of the row.
+			# 1.5. The count goes under the cell: as a grid item in the
+			# second column, when the cell's parent is a tool row.
 			(re.compile(r"(\.toolBodyRowContent_([\w-]+):not\(\.toolBodyRowContent_disableClipping_\2\)\{[^}]*\})"),
 			 r"\1.toolBodyRowContent_\2.pccCounted:not(.toolBodyRowContent_disableClipping_\2)"
 			 + "{mask-image:none;max-height:calc(4.5*" + EDITOR_SIZE + ")}"
-			 + r".toolBodyRow_\2[data-pcc-more]::after"
-			 + "{content:attr(data-pcc-more);grid-column:2;padding:0 4px 4px;color:var(--app-secondary-foreground)}"),
+			 + "[data-pcc-more]::after"
+			 + "{content:attr(data-pcc-more);display:block;grid-column:2;padding:0 4px 4px;color:var(--app-secondary-foreground)}"),
 		],
 		"webview/index.js": [
 			# The two embedded Monaco diff editors (chat diffs and previews).
