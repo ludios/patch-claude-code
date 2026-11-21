@@ -5,7 +5,8 @@ its model picker offers a fixed lineup of models, so its input footer shows
 how many tokens are in context, so a prompt stands out, is shown in full,
 and scrolls with the rest of the chat instead of staying pinned to its top,
 so the text of assistant replies is restyled for easier reading, so its
-scrollbars look like VS Code's own, so a chat's editor tab shows a
+scrollbars look like VS Code's own, so a Bash tool call's command wraps
+instead of being cut off at the edge, so a chat's editor tab shows a
 spinning logo while its session runs, and, on NixOS, so its native binary
 can run at all.
 
@@ -46,7 +47,8 @@ surfaces hardcode their own sizes besides. This script patches:
                        inline code in the same color and with no
                        background; draw VS Code's square scrollbars
                        instead of Chrome's, and keep the fade at the
-                       bottom of the chat off its scrollbar
+                       bottom of the chat off its scrollbar; wrap the
+                       command in a Bash tool call's IN row
   webview/index.js   - pass the family variable into the embedded Monaco
                        diff editors (they already take their size from the
                        size variable); hide the model picker's Default row,
@@ -266,6 +268,12 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			# shorthand from resetting the attachment.
 			(re.compile(r"(\.messageGradient_[\w-]+\{)"),
 			 r"\1overflow-y:scroll;background-attachment:local!important;"),
+			# The IN row of a Bash tool call shows its command in a <pre>
+			# that cuts off whatever doesn't fit on a line; wrap the
+			# command's lines instead. (The row's cell still clips its
+			# height, as it does for every tool row.)
+			(re.compile(r"(\.inputRow_([\w-]+)\{[^}]*\})"),
+			 r"\1.inputRow_\2 pre{white-space:pre-wrap}"),
 		],
 		"webview/index.js": [
 			# The two embedded Monaco diff editors (chat diffs and previews).
