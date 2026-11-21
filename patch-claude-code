@@ -39,7 +39,8 @@ surfaces hardcode their own sizes besides. This script patches:
                        set off prompts in the chat (in dark,
                        non-high-contrast themes, with a colored background
                        and near-white text); set the text of assistant
-                       replies in Inter Display
+                       replies in Inter Display (in dark,
+                       non-high-contrast themes, a little dimmer)
   webview/index.js   - pass the family variable into the embedded Monaco
                        diff editors (they already take their size from the
                        size variable); hide the model picker's Default row,
@@ -228,9 +229,12 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			# elements). Its CSS-module hash is captured from its inline-code
 			# rule. The text is set in Inter Display, listed under both the
 			# name "InterDisplay" and its family name "Inter Display" (the
-			# only one of the two that Chrome on Linux matches).
+			# only one of the two that Chrome on Linux matches), and in
+			# dark, non-high-contrast themes, a little dimmer than the
+			# theme's text.
 			(re.compile(r"(\.root_([\w-]+) code\{[^}]*var\(--app-inline-code-foreground\)[^}]*\})"),
-			 r'\1[data-assistant-message]>.root_\2{font-family:InterDisplay,"Inter Display",var(--vscode-chat-font-family)}'),
+			 (r'\1[data-assistant-message]>.root_\2{font-family:InterDisplay,"Inter Display",var(--vscode-chat-font-family)}'
+			  r".vscode-dark [data-assistant-message]>.root_\2{color:#bbb}")),
 		],
 		"webview/index.js": [
 			# The two embedded Monaco diff editors (chat diffs and previews).
