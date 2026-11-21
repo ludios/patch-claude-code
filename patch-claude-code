@@ -294,10 +294,10 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			# attribute, which is newer). The component's CSS-module hash is
 			# captured from its inline-code rule. The text gets VS Code's
 			# markdown preview's default line height of 1.6 (its code blocks
-			# keep the chat's 1.5). Adjacent paragraphs directly in the text
-			# (so not those in a list item or a quote) get 1em between them,
-			# instead of .2em, which is how far the browser's default margins
-			# put a list from the paragraphs around it. In dark,
+			# keep the chat's 1.5). Adjacent paragraphs directly in one root
+			# (so not those in a list item or a quote) are 1em apart instead
+			# of .2em: as far apart as the browser's default margins put a
+			# top-level list from the paragraphs around it. In dark,
 			# non-high-contrast themes, the text is #bbb (a little dimmer
 			# than the #ccc text of VS Code's Dark Modern), unless the reply
 			# failed (and so is in the theme's error color). Its inline code
