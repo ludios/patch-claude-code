@@ -1,9 +1,11 @@
 """Tests for copy-as-markdown.js. All of the cases go on one page, along with
 the script, which headless Chrome loads once; for each case, the page selects
-some of the case's text, dispatches a copy event, and records what the copy
-put on the clipboard. The cases' HTML is shaped like the webview's rendered
-markdown (react-markdown's output, with code blocks wrapped as the webview
-wraps them)."""
+some of the case's text, dispatches a copy event, and records the
+text/plain and text/html that the event's listeners set (in the event's
+own DataTransfer, not on the system clipboard), with a stand-in for the
+webview's own copy listener. The cases' HTML is shaped like the webview's
+rendered markdown (react-markdown's output, with code blocks wrapped as the
+webview wraps them)."""
 
 import base64
 import json
@@ -18,9 +20,11 @@ import pytest
 SCRIPT = Path(__file__).resolve().with_name("copy-as-markdown.js")
 # The class of the elements that hold rendered markdown, in the cases.
 ROOT = "root_test"
-# The text/html that a copy listener on the document (standing in for the
-# webview's own) sets, in a case with own_html.
-OWN_HTML = "<b>own</b>"
+# The text/plain and text/html of the copy that a copy listener on the
+# document, standing in for the webview's own, makes in a case with
+# webview_copies.
+OWN_PLAIN = "own"
+OWN_HTML  = "<b>own</b>"
 CODE_BLOCK = (
 	'<div class="codeBlockWrapper"><button class="copyButton" style="opacity:0">'
 	'<svg viewBox="0 0 16 16"><path d="M0 0h16v16z"></path></svg></button>'
@@ -57,10 +61,10 @@ class Case:
 	"""(the text where the selection starts, the text where it ends), each
 	found in the case's text (the end at or after the start); None selects
 	all of the case."""
-	own_html: bool = False
-	"""Whether a copy listener on the document sets OWN_HTML (and some
-	text/plain) before the script's listener runs, as the webview's own
-	listener does."""
+	webview_copies: bool = True
+	"""Whether the stand-in for the webview's own copy listener makes the
+	copy (OWN_PLAIN and OWN_HTML) before the script's listener runs, as the
+	webview's listener does for any selection of shown text."""
 
 
 CASES = [
@@ -134,11 +138,11 @@ CASES = [
 		'<p>shown</p>\n<p style="display:none">hidden</p>\n<p><span style="user-select:none">nope</span>yes</p>'),
 		"shown\n\nyes"),
 	Case("no markdown", '<div>a prompt</div>', None),
+	Case("no copy by the webview", markdown('<p><em>hi</em></p>'), None, webview_copies=False),
 	Case("prompt, then reply",
 		'<div style="white-space:pre-wrap">line 1\nline 2</div>'
 		+ markdown('<p>Reply with <code>code</code>.</p>'),
 		"line 1\nline 2\n\nReply with `code`."),
-	Case("own text/html kept", markdown('<p><em>hi</em></p>'), "*hi*", own_html=True),
 ]
 
 
@@ -154,8 +158,8 @@ def chrome() -> str:
 def page(cases: list[Case]) -> str:
 	"""Return the HTML of a page that runs `cases` when loaded, and then
 	puts, in its body's data-out attribute, the base64 of the UTF-8 of a
-	JSON list of each case's {plain, html, prevented} (text/plain and
-	text/html of the copy, and whether the copy's default was prevented) or
+	JSON list of each case's {plain, html} (text/plain and text/html of the
+	copy) or
 	{error}."""
 	body = "\n".join(f'<div class="case">{case.html}</div>' for case in cases)
 	specs = json.dumps([asdict(case) | {"html": None} for case in cases])
@@ -163,7 +167,8 @@ def page(cases: list[Case]) -> str:
 {body}
 <script>{SCRIPT.read_text(encoding="utf-8")}(".{ROOT}");</script>
 <script>
-const OWN_HTML = {json.dumps(OWN_HTML)};
+const OWN_PLAIN = {json.dumps(OWN_PLAIN)};
+const OWN_HTML  = {json.dumps(OWN_HTML)};
 
 // Return a Range from the first `first` in the text of `container` to the
 // end of the first `last` at or after it.
@@ -191,7 +196,7 @@ function textRange(container, first, last) {{
 }}
 
 function ownListener(event) {{
-	event.clipboardData.setData("text/plain", "own");
+	event.clipboardData.setData("text/plain", OWN_PLAIN);
 	event.clipboardData.setData("text/html", OWN_HTML);
 	event.preventDefault();
 }}
@@ -208,14 +213,14 @@ const results = [...document.querySelectorAll(".case")].map((container, index) =
 		const selection = document.getSelection();
 		selection.removeAllRanges();
 		selection.addRange(range);
-		if (spec.own_html)
+		if (spec.webview_copies)
 			document.addEventListener("copy", ownListener);
 		const data = new DataTransfer();
 		const event = new ClipboardEvent("copy", {{clipboardData: data, bubbles: true, cancelable: true}});
 		const start = range.startContainer;
 		(start instanceof Element ? start : start.parentElement).dispatchEvent(event);
 		document.removeEventListener("copy", ownListener);
-		return {{plain: data.getData("text/plain"), html: data.getData("text/html"), prevented: event.defaultPrevented}};
+		return {{plain: data.getData("text/plain"), html: data.getData("text/html")}};
 	}} catch (error) {{
 		return {{error: String(error)}};
 	}}
@@ -244,12 +249,6 @@ def results(tmp_path_factory: pytest.TempPathFactory) -> dict[str, dict[str, obj
 def test_copy(case: Case, results: dict[str, dict[str, object]]) -> None:
 	result = results[case.name]
 	assert "error" not in result, result
-	if case.want is None:
-		assert result == {"plain": "", "html": "", "prevented": False}
-		return
-	assert result["plain"] == case.want
-	assert result["prevented"]
-	if case.own_html:
-		assert result["html"] == OWN_HTML
-	else:
-		assert result["html"] != "" and "<button" not in result["html"]
+	# The script never changes the copy's text/html.
+	own = {"plain": OWN_PLAIN, "html": OWN_HTML} if case.webview_copies else {"plain": "", "html": ""}
+	assert result == own | ({} if case.want is None else {"plain": case.want})

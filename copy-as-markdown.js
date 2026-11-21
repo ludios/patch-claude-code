@@ -11,8 +11,10 @@
 // source, so it can differ from the source in spelling, though not in
 // meaning: a bullet is always "-", emphasis is always "*", and text is
 // never escaped (so a literal "*" in a reply is copied as a bare "*").
-// The text/html of the copy is the one that the webview's own copy handler
-// made, if it made one, and otherwise the selected HTML.
+// Only the text/plain of a copy that the webview's own copy listener made
+// is replaced (patch-claude-code has that listener make the copy of every
+// selection, not just of those with math in them), so the text/html of the
+// copy stays the one that listener made.
 // oxlint-disable-next-line no-unused-expressions -- patch-claude-code calls it
 ((markdownRoot) => {
 	/**
@@ -420,18 +422,6 @@
 	}
 
 	/**
-	 * @param {Range} range
-	 * @returns {string} the HTML that `range` selects, without buttons and icons
-	 */
-	function selectedHtml(range) {
-		const box = document.createElement("div");
-		box.append(range.cloneContents());
-		for (const control of box.querySelectorAll("button, svg"))
-			control.remove();
-		return box.innerHTML;
-	}
-
-	/**
 	 * A "copy" listener on the window, so that it runs after the webview's
 	 * own listener on the document, and replaces the text/plain that that
 	 * one sets.
@@ -443,6 +433,9 @@
 		const selection = document.getSelection();
 		if (!data || !selection || selection.isCollapsed || selection.rangeCount !== 1)
 			return;
+		// The webview's own listener sets text/html whenever it makes the copy.
+		if (!data.types.includes("text/html"))
+			return;
 		if (event.target instanceof Element && event.target.closest("input, textarea, [contenteditable]"))
 			return;
 		const range = selection.getRangeAt(0);
@@ -452,13 +445,11 @@
 		try {
 			markdown = new SelectionToMarkdown(range).convert();
 		} catch (error) {
-			console.error("copy-as-markdown: converting the selection failed, so the copy is plain text:", error);
+			console.error("copy-as-markdown: converting the selection failed, so the webview's own copy stays:", error);
 			return;
 		}
 		if (markdown === "")
 			return;
-		if (!data.types.includes("text/html"))
-			data.setData("text/html", selectedHtml(range));
 		data.setData("text/plain", markdown);
 		event.preventDefault();
 	}

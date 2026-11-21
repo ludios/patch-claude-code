@@ -74,10 +74,13 @@ surfaces hardcode their own sizes besides. This script patches:
                        it in full instead of behind "Show more"; make the
                        component that draws most tool calls' IN and OUT
                        cells (and the Write tool's preview) count the
-                       lines that it hides; insert
-                       copy-as-markdown.js (from this script's directory),
-                       which makes copying a selection that includes
-                       rendered markdown give markdown as its plain text
+                       lines that it hides; have the webview's own copy
+                       listener make the copy of every selection (not just
+                       of those with math in them), from when the webview
+                       starts, and insert copy-as-markdown.js (from this
+                       script's directory), which replaces the plain text
+                       of such a copy with markdown when the selection
+                       includes rendered markdown
   resources/native-binary/claude
                      - on NixOS only: point its ELF interpreter at the
                        system's dynamic loader (taken from
@@ -490,10 +493,31 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			            r"let ([\w$]+)=[\w$]+\(null\),[^;]*;return )([\w$]+)"
 			            r"(\(\(\)=>\{let [\w$]+=\3\.current;.*?\{ref:\3,className:[\w$]+\.toolBodyRowContent)(?=,)"),
 			 r"\1\4(" + count_hidden_lines(r"\3.current") + r",[\2]),\4\5" + '+" pccCounted"'),
+			# The webview has its own "copy" listener, for selections that
+			# include KaTeX math: it makes the copy's text/html and text/plain
+			# from just the selected elements that are shown (without
+			# buttons, and with the selection's list, table and code
+			# ancestors around them), putting each formula's TeX in place of
+			# the formula. Have it make the copy of every selection, by
+			# dropping the early return of the function that collects the
+			# selected elements when they hold no formula ...
+			(re.compile(r"if\([\w$]+\.length===0\)return null;"
+			            r"(?=let [\w$]+=[\w$]+\.commonAncestorContainer,[\w$]+=[\w$]+\.toString\(\)\.trim\(\)===)"),
+			 ""),
+			# ... and add the listener when the webview starts, rather than
+			# once it has loaded math rendering: in front of the listener's
+			# function declaration (at the top level of the module, so
+			# hoisted), which is found by its first statement. Adding it
+			# again later does nothing.
+			(re.compile(r"(?<=\})(?=function ([\w$]+)\(([\w$]+)\)\{let ([\w$]+)=document\.getSelection\(\);"
+			            r"if\(!\2\.clipboardData\|\|!\3\|\|\3\.isCollapsed)"),
+			 r'document.addEventListener("copy",\1);'),
 			# Make copying from the chat give markdown: put the
-			# COPY_AS_MARKDOWN function right after the markdown component's
-			# CSS-module map (a statement at the top level of the module),
-			# and call it with a selector for that component's root class.
+			# COPY_AS_MARKDOWN function, which replaces the text/plain of
+			# the copies that that listener makes, right after the markdown
+			# component's CSS-module map (a statement at the top level of
+			# the module), and call it with a selector for that component's
+			# root class.
 			(re.compile(r'(var [\w$]+=\{root:"root_([\w-]+)",[^}]*codeBlockWrapper:[^}]*\};)'),
 			 lambda match: match[1] + copy_as_markdown + '(".root_' + match[2] + '");'),
 		],
