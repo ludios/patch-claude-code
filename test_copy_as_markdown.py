@@ -170,10 +170,12 @@ CASES = [
 		"shown\n\nyes"),
 	Case("no markdown", '<div>a prompt</div>', None),
 	Case("no copy by the webview", markdown('<p><em>hi</em></p>'), None, webview_copies=False),
-	Case("prompt, then reply",
-		'<div style="white-space:pre-wrap">line 1\nline 2</div>'
-		+ markdown('<p>Reply with <code>code</code>.</p>'),
-		"line 1\nline 2\n\nReply with `code`."),
+	Case("prompt and tool row around a reply",
+		'<div style="white-space:pre-wrap">    indented\nline 2</div>'
+		'<div><img src="data:image/png;base64,AAAA" alt="shot">Fix <code>this</code></div>'
+		+ markdown('<p>Reply with <code>code</code>.</p>')
+		+ '<div><span>Bash</span><pre>ls -la</pre></div>',
+		"    indented\nline 2\n\nFix this\n\nReply with `code`.\n\nBash\nls -la"),
 ]
 
 

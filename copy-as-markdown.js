@@ -6,7 +6,8 @@
 // includes rendered markdown, the text/plain of the copy becomes markdown
 // made from the selected elements: headings, emphasis, links, inline code,
 // code blocks, lists, quotes, tables, rules and KaTeX math come back as
-// markdown syntax; any other text (prompts, tool rows) comes back as text.
+// markdown syntax; any other text (prompts, tool rows) comes back as the
+// text that the page shows for it.
 // The markdown is made from the elements, not taken from the reply's
 // source, so it can differ from the source in spelling, though not in
 // meaning: a bullet is always "-", emphasis is always "*", and text is
@@ -219,6 +220,42 @@
 		}
 
 		/**
+		 * @param {Element} element
+		 * @returns {boolean} whether `element` is outside rendered markdown,
+		 *   and holds none
+		 */
+		isPlain(element) {
+			return !element.closest(markdownRoot) && !element.querySelector(markdownRoot);
+		}
+
+		/**
+		 * @param {Element} element  a selected element
+		 * @returns {string} the text that the page shows for the selected
+		 *   part of `element`, as innerText gives it
+		 */
+		shownText(element) {
+			const part = document.createRange();
+			part.selectNodeContents(element);
+			if (part.compareBoundaryPoints(Range.START_TO_START, this.range) < 0)
+				part.setStart(this.range.startContainer, this.range.startOffset);
+			if (part.compareBoundaryPoints(Range.END_TO_END, this.range) > 0)
+				part.setEnd(this.range.endContainer, this.range.endOffset);
+			// innerText is of laid-out elements, so it is taken of a copy of
+			// `element` that holds just that part, next to `element` (so it
+			// gets the same styles) but out of sight.
+			const copy = element.cloneNode(false);
+			copy.removeAttribute("id");
+			Object.assign(copy.style, {position: "fixed", left: "-99999px", top: "0"});
+			copy.append(part.cloneContents());
+			element.after(copy);
+			try {
+				return copy.innerText;
+			} finally {
+				copy.remove();
+			}
+		}
+
+		/**
 		 * @param {Element} math  a selected .katex (inline) or .katex-display
 		 *   (display) element, as KaTeX renders it
 		 * @returns {string} `math` between markdown math delimiters (see
@@ -262,8 +299,11 @@
 		/**
 		 * @param {Element} element  a selected block element
 		 * @returns {string} the markdown of the selected part of `element`
+		 *   (just its shown text, outside rendered markdown)
 		 */
 		block(element) {
+			if (this.isPlain(element))
+				return this.shownText(element).replace(/^\n+|\n+$/g, "");
 			if (element.matches(".katex-display"))
 				return this.math(element);
 			const heading = /^H([1-6])$/.exec(element.tagName);
@@ -388,12 +428,15 @@
 		/**
 		 * @param {Node} node  a selected, shown node
 		 * @returns {string} the inline markdown of the selected part of `node`
+		 *   (just its shown text, outside rendered markdown)
 		 */
 		inlineNode(node) {
 			if (node.nodeType === Node.TEXT_NODE)
 				return this.text(node);
 			if (!(node instanceof HTMLElement))
 				return "";
+			if (this.isPlain(node))
+				return this.shownText(node);
 			if (node.matches(".katex-display, .katex"))
 				return this.math(node);
 			switch (node.tagName) {
