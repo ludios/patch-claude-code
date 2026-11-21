@@ -45,7 +45,8 @@ surfaces hardcode their own sizes besides. This script patches:
                        dimmer), with
                        inline code in the same color and with no
                        background; draw VS Code's square scrollbars
-                       instead of Chrome's
+                       instead of Chrome's, and keep the fade at the
+                       bottom of the chat off its scrollbar
   webview/index.js   - pass the family variable into the embedded Monaco
                        diff editors (they already take their size from the
                        size variable); hide the model picker's Default row,
@@ -254,6 +255,17 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			# own scrollbar-color or scrollbar-width keep Chrome's.
 			(re.compile(r"\Z"),
 			 "html{scrollbar-color:auto}"),
+			# The gradient that fades out the chat's bottom edge is an
+			# overlay that also covers the chat's scrollbar. Chrome paints
+			# an element's background under its scrollbar whatever its
+			# background-clip, but with background-attachment local, only
+			# inside its scrollport. So give the overlay a scrollbar of its
+			# own: with nothing to scroll, it draws no thumb, and like the
+			# chat's (VS Code's, see above), it is as wide and has no track.
+			# The !important keeps the full-editor variant's background
+			# shorthand from resetting the attachment.
+			(re.compile(r"(\.messageGradient_[\w-]+\{)"),
+			 r"\1overflow-y:scroll;background-attachment:local!important;"),
 		],
 		"webview/index.js": [
 			# The two embedded Monaco diff editors (chat diffs and previews).
