@@ -273,6 +273,13 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			# puts TEXT_FONT ahead of it.
 			(re.compile(r"(?<![\w-])font-family:var\(--vscode-chat-font-family\)"),
 			 "font-family:" + TEXT_FONT + ",var(--vscode-chat-font-family)"),
+			# Form controls don't inherit the page's font, and some of the
+			# webview's (such as the session list's search box) set none, so
+			# they were in Chrome's default control font. Make them inherit
+			# it, after the page's rule; rules that set a control's font,
+			# all more specific, still win.
+			(re.compile(r"((?<=\})body\{[^}]*font-family:[^}]*\})"),
+			 r"\1input,textarea,select{font-family:inherit}"),
 			# The input footer's fixed-width texts (spans that it re-fits
 			# its items around only when their length changes) get tabular
 			# digits only inside its indicators, so with TEXT_FONT's
