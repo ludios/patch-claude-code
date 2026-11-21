@@ -445,16 +445,19 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			# are drawn by one component, which clips its content and fades
 			# out the bottom of what's left. Have it say how many lines it
 			# hides, under the cell (see count_hidden_lines and the
-			# toolBodyRow CSS), and mark its cell as one that does, so that
+			# pccCounted CSS), and mark its cell as one that does, so that
 			# the CSS can drop the fade from such cells only. The component
-			# is found by its props; it runs one effect already (which makes
-			# the cell clickable when it clips anything), and gets another,
-			# which re-runs whenever its content does.
+			# is found by its props. It already runs an effect (which makes
+			# the cell clickable when it clips anything), found by its
+			# reading the ref that the cell is put in; the counting effect
+			# goes before it, with the same effect hook, and runs again
+			# whenever the component gets new children. One regex adds both
+			# the effect and the mark, so that a cell is never marked
+			# without being counted.
 			(re.compile(r"(function [\w$]+\(\{onOpen:[\w$]+,alwaysOpens:[\w$]+,children:([\w$]+)\}\)\{"
-			            r"let ([\w$]+)=[\w$]+\(null\),[^;]*;return )([\w$]+)\("),
-			 r"\1\4(" + count_hidden_lines(r"\3.current") + r",[\2]),\4("),
-			(re.compile(r"(\{ref:[\w$]+,className:[\w$]+\.toolBodyRowContent)(?=,)"),
-			 r'\1+" pccCounted"'),
+			            r"let ([\w$]+)=[\w$]+\(null\),[^;]*;return )([\w$]+)"
+			            r"(\(\(\)=>\{let [\w$]+=\3\.current;.*?\{ref:\3,className:[\w$]+\.toolBodyRowContent)(?=,)"),
+			 r"\1\4(" + count_hidden_lines(r"\3.current") + r",[\2]),\4\5" + '+" pccCounted"'),
 			# Make copying from the chat give markdown: put the
 			# COPY_AS_MARKDOWN function right after the markdown component's
 			# CSS-module map (a statement at the top level of the module),
