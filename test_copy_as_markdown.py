@@ -97,8 +97,8 @@ CASES = [
 		"---\n\n"
 		"Done."),
 	Case("nested lists", markdown(
-		'<ul>\n<li>one</li>\n<li>two\n<ol start="3">\n<li>three</li>\n<li>four</li>\n</ol>\n</li>\n</ul>'),
-		"- one\n- two\n  3. three\n  4. four"),
+		'<ul>\n<li>one</li>\n<li>two\n<ol>\n<li>three</li>\n<li>four</li>\n</ol>\n</li>\n</ul>'),
+		"- one\n- two\n  1. three\n  2. four"),
 	Case("loose list", markdown(
 		'<ol>\n<li>\n<p>first</p>\n<p>more</p>\n</li>\n<li>\n<p>second</p>\n'
 		+ CODE_BLOCK.format(language="sh", code="echo hi\n") + '\n</li>\n</ol>'),
@@ -116,9 +116,9 @@ CASES = [
 		'<th style="text-align:right">Right</th>\n<th>None</th>\n</tr>\n</thead>\n<tbody>\n'
 		'<tr>\n<td style="text-align:left"><code>x|y</code></td>\n<td style="text-align:center"><strong>b</strong></td>\n'
 		'<td style="text-align:right">c</td>\n<td></td>\n</tr>\n</tbody>\n</table>'),
-		"| Left   | Mid   | Right | None |\n"
-		"| :----- | :---: | ----: | ---- |\n"
-		"| `x\\|y` | **b** | c     |      |"),
+		"| Left | Mid | Right | None |\n"
+		"| :--- | :---: | ---: | --- |\n"
+		"| `x\\|y` | **b** | c |  |"),
 	Case("links", markdown(
 		'<p><a href="README.md">README.md</a>, <a href="https://x.test/a.">https://x.test/a.</a>,'
 		' <a href="https://x.test/b">https://x.test/b</a></p>'),
@@ -153,6 +153,8 @@ CASES = [
 		"[*own* site](https://x.test/)", select=("own", "site")),
 	Case("inside a heading", markdown('<h2>Title</h2>\n<p>text</p>'),
 		"itl", select=("itl", "itl")),
+	Case("end of a code block", markdown(CODE_BLOCK.format(language="sh", code="echo one\n") + '\n<p>Outro</p>'),
+		"Ou", select=("]echo one", "Ou")),
 	Case("inside a code block", markdown(CODE_BLOCK.format(language="py", code="a = 1\nb = 2\nc = 3\n")),
 		"= 1\nb = 2\nc", select=("= 1", "c")),
 	Case("inside inline code", markdown('<p>Call <code>foo_bar()</code> now.</p>'),
@@ -164,7 +166,7 @@ CASES = [
 		'<table>\n<thead>\n<tr>\n<th>Name</th>\n<th>Value</th>\n</tr>\n</thead>\n<tbody>\n'
 		'<tr>\n<td>one</td>\n<td>1</td>\n</tr>\n<tr>\n<td>two</td>\n<td>2</td>\n</tr>\n'
 		'<tr>\n<td>three</td>\n<td>3</td>\n</tr>\n</tbody>\n</table>'),
-		"| Name | Value |\n| ---- | ----- |\n| wo   | 2     |\n| thr  |       |", select=("wo", "thr")),
+		"| Name | Value |\n| --- | --- |\n| wo | 2 |\n| thr |  |", select=("wo", "thr")),
 	Case("hidden text", markdown(
 		'<p>shown</p>\n<p style="display:none">hidden</p>\n<p><span style="user-select:none">nope</span>yes</p>'),
 		"shown\n\nyes"),
@@ -266,7 +268,10 @@ const results = [...document.querySelectorAll(".case")].map((container, index) =
 		return {{error: String(error)}};
 	}}
 }});
-document.body.dataset.out = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(results))));
+let binary = "";
+for (const byte of new TextEncoder().encode(JSON.stringify(results)))
+	binary += String.fromCharCode(byte);
+document.body.dataset.out = btoa(binary);
 </script></body></html>"""
 
 

@@ -2,16 +2,27 @@
 // function expression into the webview's index.js and calls it with a CSS
 // selector that matches every element holding rendered markdown.
 //
-// On every copy (Ctrl+C, or Copy in a context menu) whose selection
-// includes rendered markdown, the text/plain of the copy becomes markdown
-// made from the selected elements: headings, emphasis, links, inline code,
-// code blocks, lists, quotes, tables, rules and KaTeX math come back as
-// markdown syntax; any other text (prompts, tool rows) comes back as the
-// text that the page shows for it.
+// When a copy (Ctrl+C, or Copy in a context menu) is of a selection that
+// includes rendered markdown, its text/plain becomes GFM markdown made from
+// the selected elements: headings, emphasis, links, inline code, code
+// blocks, lists, quotes, tables, rules and KaTeX math (between "$"s, or
+// "$$"s for a display formula) come back as markdown syntax; any other
+// text (prompts, tool rows) comes back as the text that the page shows
+// for it.
+//
 // The markdown is made from the elements, not taken from the reply's
-// source, so it can differ from the source in spelling, though not in
-// meaning: a bullet is always "-", emphasis is always "*", and text is
-// never escaped (so a literal "*" in a reply is copied as a bare "*").
+// source, so it can differ from the source: a bullet is always "-",
+// italic text is always between "*"s and bold text between "**"s, and
+// text is not escaped (except for a "|" in a table cell), so text that
+// looks like markdown syntax, such as a literal "*", becomes that syntax.
+// Where the selection starts or ends inside an element:
+// - a selection that is all code is copied as just that code;
+// - a selection inside one block is copied without that block's markup (a
+//   heading's "#", an item's bullet), but with the markup of the inline
+//   elements around it (bold, a link);
+// - a formula is copied whole, when any of its drawn glyphs are selected;
+// - rows of a table are copied with its header row, selected or not.
+//
 // Only the text/plain of a copy that the webview's own copy listener made
 // is replaced (patch-claude-code has that listener make the copy of every
 // selection, not just of those with math in them), so the text/html of the
@@ -32,19 +43,27 @@
 	 * @returns {number} the length of the longest run of backticks in `text`
 	 */
 	function longestBacktickRun(text) {
-		return Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
+		let longest = 0;
+		for (const [run] of text.matchAll(/`+/g))
+			longest = Math.max(longest, run.length);
+		return longest;
 	}
 
 	/**
 	 * @param {string} text  inline markdown
-	 * @param {string} mark  an emphasis delimiter, such as "**"
+	 * @param {string} mark  a delimiter, such as "**" or "~~"
 	 * @returns {string} `text` between two `mark`s, with the whitespace at
 	 *   either end of `text` moved outside them (or `text` itself, when it is
-	 *   only whitespace), since markdown does not allow that whitespace inside
+	 *   only whitespace), since markdown does not allow whitespace right
+	 *   inside the delimiters
 	 */
 	function wrap(text, mark) {
-		const [, before, inner, after] = /^(\s*)([\s\S]*?)(\s*)$/.exec(text);
-		return inner === "" ? text : before + mark + inner + mark + after;
+		const inner = text.trim();
+		if (inner === "")
+			return text;
+		const before = text.slice(0, text.length - text.trimStart().length);
+		const after  = text.slice(text.trimEnd().length);
+		return before + mark + inner + mark + after;
 	}
 
 	/**
@@ -66,13 +85,15 @@
 	/**
 	 * @param {string} code  the text of a code block
 	 * @param {string} language  its language, or ""
-	 * @returns {string} a fenced markdown code block, or "" when `code` is ""
+	 * @returns {string} a fenced markdown code block, or "" when `code` is
+	 *   empty (apart from a final newline)
 	 */
 	function fence(code, language) {
+		code = code.replace(/\n$/, "");
 		if (code === "")
 			return "";
 		const ticks = "`".repeat(Math.max(3, longestBacktickRun(code) + 1));
-		return ticks + language + "\n" + code.replace(/\n$/, "") + "\n" + ticks;
+		return ticks + language + "\n" + code + "\n" + ticks;
 	}
 
 	/**
@@ -205,18 +226,26 @@
 		}
 
 		/**
-		 * @param {Element} element
-		 * @returns {string} the selected text in `element`, as it is, with
-		 *   nothing left out and no markdown added
+		 * @param {Element} element  a selected element
+		 * @returns {Range} the selected part of `element`'s contents
+		 */
+		part(element) {
+			const part = document.createRange();
+			part.selectNodeContents(element);
+			if (part.compareBoundaryPoints(Range.START_TO_START, this.range) < 0)
+				part.setStart(this.range.startContainer, this.range.startOffset);
+			if (part.compareBoundaryPoints(Range.END_TO_END, this.range) > 0)
+				part.setEnd(this.range.endContainer, this.range.endOffset);
+			return part;
+		}
+
+		/**
+		 * @param {Element} element  a selected element
+		 * @returns {string} the text of the selected part of `element`'s text
+		 *   nodes, as it is, with nothing left out and no markdown added
 		 */
 		rawText(element) {
-			let text = "";
-			const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-			while (walker.nextNode()) {
-				if (this.range.intersectsNode(walker.currentNode))
-					text += this.slice(walker.currentNode);
-			}
-			return text;
+			return this.part(element).toString();
 		}
 
 		/**
@@ -234,19 +263,13 @@
 		 *   part of `element`, as innerText gives it
 		 */
 		shownText(element) {
-			const part = document.createRange();
-			part.selectNodeContents(element);
-			if (part.compareBoundaryPoints(Range.START_TO_START, this.range) < 0)
-				part.setStart(this.range.startContainer, this.range.startOffset);
-			if (part.compareBoundaryPoints(Range.END_TO_END, this.range) > 0)
-				part.setEnd(this.range.endContainer, this.range.endOffset);
 			// innerText is of laid-out elements, so it is taken of a copy of
 			// `element` that holds just that part, next to `element` (so it
 			// gets the same styles) but out of sight.
 			const copy = element.cloneNode(false);
 			copy.removeAttribute("id");
 			Object.assign(copy.style, {position: "fixed", left: "-99999px", top: "0"});
-			copy.append(part.cloneContents());
+			copy.append(this.part(element).cloneContents());
 			element.after(copy);
 			try {
 				return copy.innerText;
@@ -374,7 +397,7 @@
 		 */
 		cells(row) {
 			return [...row.cells].map((cell) =>
-				this.inline(cell).trim().replace(/ *\n/g, "<br>").replaceAll("|", "\\|"));
+				this.inline(cell).trim().replaceAll("  \n", "\n").replaceAll("\n", "<br>").replaceAll("|", "\\|"));
 		}
 
 		/**
@@ -385,6 +408,8 @@
 		 */
 		table(table) {
 			const [header, ...body] = table.rows;
+			if (!header)
+				return "";
 			const filled = (cells) => cells.some((cell) => cell !== "");
 			const rows = body
 				.filter((row) => this.range.intersectsNode(row))
@@ -400,19 +425,16 @@
 				head = new SelectionToMarkdown(whole).cells(header);
 			}
 			rows.unshift(head);
-			const columns = Math.max(...rows.map((cells) => cells.length));
-			const widths  = [];
+			const columns = rows.reduce((columns, cells) => Math.max(columns, cells.length), 0);
 			const rule    = [];
 			for (let column = 0; column < columns; column++) {
-				const width = Math.max(3, ...rows.map((cells) => (cells[column] ?? "").length));
 				const cell  = header.cells[column];
 				const align = cell ? cell.style.textAlign || cell.getAttribute("align") || "" : "";
-				const left  = align === "left"  || align === "center" ? ":" : "-";
-				const right = align === "right" || align === "center" ? ":" : "-";
-				widths.push(width);
-				rule.push(left + "-".repeat(width - 2) + right);
+				const left  = align === "left"  || align === "center" ? ":" : "";
+				const right = align === "right" || align === "center" ? ":" : "";
+				rule.push(left + "---" + right);
 			}
-			const line = (cells) => "| " + widths.map((width, column) => (cells[column] ?? "").padEnd(width)).join(" | ") + " |";
+			const line = (cells) => "| " + rule.map((_, column) => cells[column] ?? "").join(" | ") + " |";
 			return [line(rows[0]), "| " + rule.join(" | ") + " |", ...rows.slice(1).map(line)].join("\n");
 		}
 
@@ -448,7 +470,8 @@
 				case "IMG":
 					return `![${node.alt}](${node.getAttribute("src") ?? ""})`;
 				case "INPUT":
-					// A task list item's checkbox, followed by a space.
+					// A task list item's checkbox (the space after it is in the
+					// text that follows it).
 					return node.type !== "checkbox" ? "" : node.checked ? "[x]" : "[ ]";
 				default:
 					return this.markup(node, this.inline(node));
