@@ -6,9 +6,10 @@ how many tokens are in context, so a prompt stands out, is shown in full,
 and scrolls with the rest of the chat instead of staying pinned to its top,
 so its chat-font text is set in Inter Display, and the text of
 assistant replies is restyled for easier reading, so its scrollbars look
-like VS Code's own, so a Bash tool call's command wraps instead of being
-cut off at the edge, so a chat's editor tab shows a spinning logo while
-its session runs, and, on NixOS, so its native binary can run at all.
+like VS Code's own, so a Bash (or PowerShell) tool call's command wraps
+instead of being cut off at the edge, so a chat's editor tab shows a
+spinning logo while its session runs, and, on NixOS, so its native binary
+can run at all.
 
 VS Code injects the real editor font into every webview as the
 --vscode-editor-font-family / --vscode-editor-font-size (px) CSS variables,
@@ -43,13 +44,14 @@ surfaces hardcode their own sizes besides. This script patches:
                        and near-white text); set the text that is in
                        the chat font in Inter Display instead, and the
                        text of assistant replies at a line height of 1.6
-                       (in dark, non-high-contrast themes, a little
-                       dimmer), with inline code in the same color and
-                       with no background or padding; draw VS Code's
-                       square scrollbars instead of Chrome's, as wide as
-                       the editor's, and keep the fade at the bottom of
-                       the chat off its scrollbar; wrap the command in a
-                       Bash tool call's IN row
+                       (in dark, non-high-contrast themes, in #bbb, a
+                       little dimmer than Dark Modern's text), with inline
+                       code in the color of the text around it and with no
+                       background or padding; draw VS Code's square
+                       scrollbars instead of Chrome's, as wide as the
+                       editor's, and keep the fade at the bottom of the
+                       chat off its scrollbar; wrap the command in a Bash
+                       (or PowerShell) tool call's IN row
   webview/index.js   - pass the family variable into the embedded Monaco
                        diff editors (they already take their size from the
                        size variable); hide the model picker's Default row,
@@ -100,7 +102,9 @@ EDITOR_SIZE   = "var(--vscode-editor-font-size,12px)"
 EDITOR_FAMILY = "var(--vscode-editor-font-family)"
 # The font the chat's text is set in, ahead of the chat font: Inter Display,
 # under both the name "InterDisplay" and its family name "Inter Display"
-# (the only one of the two that Chrome on Linux matches).
+# (the only one of the two that Chrome on Linux matches). It must be
+# installed where VS Code draws its window (with Remote SSH, the client);
+# where it is not, the chat font is used.
 TEXT_FONT = 'InterDisplay,"Inter Display"'
 # A selector for assistant replies, and one (in an re.subn replacement
 # string, with the markdown component's CSS-module hash as group 2) for the
@@ -258,13 +262,14 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			# captured from its inline-code rule. The text gets VS Code's
 			# markdown preview's default line height of 1.6 (its code blocks
 			# keep the chat's 1.5), and in dark, non-high-contrast themes, is
-			# a little dimmer than the theme's text, unless the reply failed
-			# (and so is in the theme's error color). Its inline code (code
-			# without a class; the "★ Insight" header and footer and fenced
-			# code have one) gets no background, no padding (whose vertical part, at display scales
+			# #bbb (a little dimmer than the #ccc text of VS Code's Dark
+			# Modern), unless the reply failed (and so is in the theme's
+			# error color). Its inline code (code without a class; the
+			# "★ Insight" header and footer and fenced code have one) gets no
+			# background, no padding (whose vertical part, at display scales
 			# such as 125%, also drew the code a device pixel below the
 			# text's baseline), and the color of the text around it instead
-			# of the theme's color for preformatted text (yellow in dark
+			# of the theme's color for preformatted text (yellow in some dark
 			# themes).
 			(re.compile(r"(\.root_([\w-]+) code\{[^}]*var\(--app-inline-code-foreground\)[^}]*\})"),
 			 r"\1"
@@ -301,10 +306,10 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			(re.compile(r"(\.messageGradient_([\w-]+)\{[^}]*\})"),
 			 r"\1" + WEBKIT_SCROLLBARS
 			 + r"{.messageGradient_\2{overflow-y:scroll;background-attachment:local!important}}"),
-			# The IN row of a Bash tool call shows its command in a <pre>
-			# that cuts off whatever doesn't fit on a line; wrap the
-			# command's lines instead. (The row's cell still clips its
-			# height, as it does for every tool row.)
+			# The IN row of a Bash tool call (and of a PowerShell one, which
+			# Bash's renderer also draws) shows its command in a <pre> that
+			# cuts off whatever doesn't fit on a line; wrap the command's
+			# lines instead. (The row's cell still clips its height.)
 			(re.compile(r"(\.inputRow_([\w-]+)\{[^}]*\})"),
 			 r"\1.inputRow_\2 pre{white-space:pre-wrap}"),
 		],
