@@ -39,8 +39,9 @@ surfaces hardcode their own sizes besides. This script patches:
                        set off prompts in the chat (in dark,
                        non-high-contrast themes, with a colored background
                        and near-white text); set the text of assistant
-                       replies in Inter Display (in dark,
-                       non-high-contrast themes, a little dimmer), with
+                       replies in Inter Display at a line height of 1.6
+                       (in dark, non-high-contrast themes, a little
+                       dimmer), with
                        inline code in the same color and with no
                        background
   webview/index.js   - pass the family variable into the embedded Monaco
@@ -231,13 +232,14 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			# elements). Its CSS-module hash is captured from its inline-code
 			# rule. The text is set in Inter Display, listed under both the
 			# name "InterDisplay" and its family name "Inter Display" (the
-			# only one of the two that Chrome on Linux matches), and in
+			# only one of the two that Chrome on Linux matches), with VS
+			# Code's markdown preview's default line height of 1.6, and in
 			# dark, non-high-contrast themes, a little dimmer than the
 			# theme's text. Its inline code gets no background, and the
 			# color of the text around it instead of the theme's color for
 			# preformatted text (yellow in dark themes).
 			(re.compile(r"(\.root_([\w-]+) code\{[^}]*var\(--app-inline-code-foreground\)[^}]*\})"),
-			 (r'\1[data-assistant-message]>.root_\2{font-family:InterDisplay,"Inter Display",var(--vscode-chat-font-family)}'
+			 (r'\1[data-assistant-message]>.root_\2{font-family:InterDisplay,"Inter Display",var(--vscode-chat-font-family);line-height:1.6}'
 			  r".vscode-dark [data-assistant-message]>.root_\2{color:#bbb}"
 			  r"[data-assistant-message]>.root_\2 code{color:inherit;background:none}")),
 		],
