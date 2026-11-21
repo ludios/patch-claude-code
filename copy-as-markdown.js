@@ -119,12 +119,17 @@
 				return this.rawText(top);
 			if (top.matches("thead, tbody, tfoot, tr"))
 				top = top.closest("table");
-			// The selection is inside `top`, so `top`'s own markup (a heading's
-			// "#", an item's bullet, a quote's ">") is left out, unless `top`
-			// is one whose children make no sense without it.
+			// The selection is inside `top`, so the markup of `top`'s block
+			// (a heading's "#", an item's bullet, a quote's ">") is left out,
+			// unless `top` is one whose children make no sense without it;
+			// but the markup of each inline element that holds the selection
+			// (bold, italic, strikethrough, a link) is kept.
 			if (top.matches("ol, ul, table"))
 				return this.block(top);
-			return this.blocks(top).join("\n\n");
+			let markdown = this.blocks(top).join("\n\n");
+			for (let element = top; !this.isBlock(element); element = element.parentElement)
+				markdown = this.markup(element, markdown);
+			return markdown;
 		}
 
 		/**
@@ -395,38 +400,52 @@
 				case "BR":
 					// A markdown hard line break.
 					return "  \n";
-				case "STRONG":
-				case "B":
-					return wrap(this.inline(node), "**");
-				case "EM":
-				case "I":
-					return wrap(this.inline(node), "*");
-				case "DEL":
-				case "S":
-					return wrap(this.inline(node), "~~");
 				case "CODE":
 					return codeSpan(this.rawText(node));
-				case "A":
-					return this.link(node);
 				case "IMG":
 					return `![${node.alt}](${node.getAttribute("src") ?? ""})`;
 				case "INPUT":
 					// A task list item's checkbox, followed by a space.
 					return node.type !== "checkbox" ? "" : node.checked ? "[x]" : "[ ]";
 				default:
-					return this.inline(node);
+					return this.markup(node, this.inline(node));
+			}
+		}
+
+		/**
+		 * @param {Element} element  an inline element
+		 * @param {string} text  the inline markdown of the selected part of
+		 *   `element`'s contents
+		 * @returns {string} `text` with `element`'s markup around it, if
+		 *   `element` is bold, italic, struck through or a link
+		 */
+		markup(element, text) {
+			switch (element.tagName) {
+				case "STRONG":
+				case "B":
+					return wrap(text, "**");
+				case "EM":
+				case "I":
+					return wrap(text, "*");
+				case "DEL":
+				case "S":
+					return wrap(text, "~~");
+				case "A":
+					return this.link(element, text);
+				default:
+					return text;
 			}
 		}
 
 		/**
 		 * @param {HTMLAnchorElement} link
-		 * @returns {string} the selected part of `link`, as a markdown link,
-		 *   or as just its text when it has no address, when its selected
-		 *   text is only whitespace, or when GFM makes the same link of that
-		 *   text by itself
+		 * @param {string} text  the inline markdown of the selected part of
+		 *   `link`'s contents
+		 * @returns {string} `text` as a markdown link to `link`'s address, or
+		 *   just `text` when `link` has no address, when `text` is only
+		 *   whitespace, or when GFM makes the same link of `text` by itself
 		 */
-		link(link) {
-			const text = this.inline(link);
+		link(link, text) {
 			const href = link.getAttribute("href");
 			if (!href || text.trim() === "")
 				return text;
