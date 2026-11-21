@@ -45,7 +45,7 @@ surfaces hardcode their own sizes besides. This script patches:
                        (in dark, non-high-contrast themes, a little
                        dimmer), with
                        inline code in the same color and with no
-                       background; draw VS Code's square scrollbars
+                       background or padding; draw VS Code's square scrollbars
                        instead of Chrome's, and keep the fade at the
                        bottom of the chat off its scrollbar; wrap the
                        command in a Bash tool call's IN row
@@ -240,13 +240,15 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			# only one of the two that Chrome on Linux matches), with VS
 			# Code's markdown preview's default line height of 1.6, and in
 			# dark, non-high-contrast themes, a little dimmer than the
-			# theme's text. Its inline code gets no background, and the
-			# color of the text around it instead of the theme's color for
-			# preformatted text (yellow in dark themes).
+			# theme's text. Its inline code gets no background, no padding
+			# (whose vertical part, at display scales such as 125%, also
+			# drew the code a device pixel below the text's baseline), and
+			# the color of the text around it instead of the theme's color
+			# for preformatted text (yellow in dark themes).
 			(re.compile(r"(\.root_([\w-]+) code\{[^}]*var\(--app-inline-code-foreground\)[^}]*\})"),
 			 (r'\1[data-assistant-message]>.root_\2{font-family:InterDisplay,"Inter Display",var(--vscode-chat-font-family);line-height:1.6}'
 			  r".vscode-dark [data-assistant-message]>.root_\2{color:#bbb}"
-			  r"[data-assistant-message]>.root_\2 code{color:inherit;background:none}")),
+			  r"[data-assistant-message]>.root_\2 code{color:inherit;background:none;padding:0}")),
 			# VS Code's webview host styles scrollbars with ::-webkit-scrollbar
 			# rules (square, 10px wide, in its scrollbarSlider colors), but
 			# also sets scrollbar-color on html, and Chrome ignores those
