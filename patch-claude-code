@@ -253,17 +253,19 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			# supported version has (unlike its data-assistant-message
 			# attribute, which is newer). The component's CSS-module hash is
 			# captured from its inline-code rule. The text gets VS Code's
-			# markdown preview's default line height of 1.6, and in dark,
-			# non-high-contrast themes, is a little dimmer than the theme's
-			# text, unless the reply failed (and so is in the theme's error
-			# color). Its inline code gets no background, no padding (whose
-			# vertical part, at display scales such as 125%, also drew the
-			# code a device pixel below the text's baseline), and the color
-			# of the text around it instead of the theme's color for
-			# preformatted text (yellow in dark themes).
+			# markdown preview's default line height of 1.6 (its code blocks
+			# keep the chat's 1.5), and in dark, non-high-contrast themes, is
+			# a little dimmer than the theme's text, unless the reply failed
+			# (and so is in the theme's error color). Its inline code gets no
+			# background, no padding (whose vertical part, at display scales
+			# such as 125%, also drew the code a device pixel below the
+			# text's baseline), and the color of the text around it instead
+			# of the theme's color for preformatted text (yellow in dark
+			# themes).
 			(re.compile(r"(\.root_([\w-]+) code\{[^}]*var\(--app-inline-code-foreground\)[^}]*\})"),
 			 r"\1"
 			 + REPLY_TEXT + "{line-height:1.6}"
+			 + REPLY_TEXT + " pre{line-height:1.5}"
 			 + ".vscode-dark " + REPLY + r":not([class*=failedReply_])>.root_\2{color:#bbb}"
 			 + REPLY_TEXT + " code{color:inherit;background:none;padding:0}"),
 			# VS Code's webview host styles scrollbars with ::-webkit-scrollbar
