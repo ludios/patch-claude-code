@@ -234,15 +234,17 @@ def count_hidden_lines(cell: str) -> str:
 	attribute of the cell's parent (a tool row, or for the Write tool, the
 	tool body) set to "(N more lines)"; while the cell hides none, it keeps
 	the attribute absent. `cell` is a JS expression for the cell element,
-	evaluated when the effect runs. Lines are as tall as the line height of
-	the cell's first <pre>, if any, else of the cell itself. When cleaned
+	evaluated when the effect runs. Only a cell whose text is a single <pre>
+	(the cell's only child, or its only child's only child) is counted,
+	with lines as tall as that <pre>'s line height. When cleaned
 	up, the effect removes the attribute only if the cell has left the
 	document; otherwise, the effect is about to run again for the cell's
 	new children, and keeping the attribute stops the count from blinking."""
 	return (
 		f"()=>{{let pccCell={cell},pccRow=pccCell?.parentElement;if(!pccRow)return;"
 		"let pccCount=()=>{"
-		'let pccLine=parseFloat(getComputedStyle(pccCell.querySelector("pre")??pccCell).lineHeight),'
+		'let pccPre=pccCell.querySelector(":scope>pre:only-child,:scope>:only-child>pre:only-child"),'
+		"pccLine=pccPre?parseFloat(getComputedStyle(pccPre).lineHeight):0,"
 		"pccHidden=pccCell.scrollHeight-pccCell.clientHeight,"
 		"pccLines=pccHidden>1&&pccLine>0?Math.ceil((pccHidden-1)/pccLine):0;"
 		'if(pccLines>0)pccRow.dataset.pccMore=`(${pccLines} more line${pccLines===1?"":"s"})`;'
@@ -374,15 +376,18 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			# lines instead. (The row's cell still clips its height.)
 			(re.compile(r"(\.inputRow_([\w-]+)\{[^}]*\})"),
 			 r"\1.inputRow_\2 pre{white-space:pre-wrap}"),
-			# A tool row's cell that says how many lines it hides (see the
-			# pccCounted JS) shows exactly 3 lines of its text, without the
-			# fade over a partly cut-off third line: its text is usually a
-			# <pre> in the editor font size, at the chat's line height of
-			# 1.5. The count goes under the cell: as a grid item in the
-			# second column, when the cell's parent is a tool row.
+			# A cell that says how many lines it hides (one marked by the
+			# pccCounted JS, whose text is a single <pre>, in the editor font
+			# size at the chat's line height of 1.5) shows exactly 3 lines of
+			# its text, without the fade over a partly cut-off third line.
+			# Its bottom padding becomes a margin, as the top of a fourth
+			# line would show in it. Other cells keep the fade. The count
+			# goes under the cell: as a grid item in the second column, when
+			# the cell's parent is a tool row.
 			(re.compile(r"(\.toolBodyRowContent_([\w-]+):not\(\.toolBodyRowContent_disableClipping_\2\)\{[^}]*\})"),
 			 r"\1.toolBodyRowContent_\2.pccCounted:not(.toolBodyRowContent_disableClipping_\2)"
-			 + "{mask-image:none;max-height:calc(4.5*" + EDITOR_SIZE + ")}"
+			 + ":has(>pre:only-child,>:only-child>pre:only-child)"
+			 + "{mask-image:none;max-height:calc(4.5*" + EDITOR_SIZE + ");padding-bottom:0;margin-bottom:4px}"
 			 + "[data-pcc-more]::after"
 			 + "{content:attr(data-pcc-more);display:block;grid-column:2;padding:0 4px 4px;color:var(--app-secondary-foreground)}"),
 		],
