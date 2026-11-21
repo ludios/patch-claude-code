@@ -4,6 +4,7 @@ chat follows the user's editor.fontFamily and editor.fontSize settings, so
 its model picker offers a fixed lineup of models, so its input footer shows
 how many tokens are in context, so a prompt stands out, is shown in full,
 and scrolls with the rest of the chat instead of staying pinned to its top,
+so the text of assistant replies is restyled for easier reading,
 so a chat's editor tab shows a spinning logo while its session runs, and,
 on NixOS, so its native binary can run at all.
 
@@ -37,7 +38,8 @@ surfaces hardcode their own sizes besides. This script patches:
                        "Added N lines", ...) back to the normal chat size;
                        set off prompts in the chat (in dark,
                        non-high-contrast themes, with a colored background
-                       and near-white text)
+                       and near-white text); set the text of assistant
+                       replies in Inter Display
   webview/index.js   - pass the family variable into the embedded Monaco
                        diff editors (they already take their size from the
                        size variable); hide the model picker's Default row,
@@ -220,6 +222,15 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			(re.compile(r"(\.userMessage_([\w-]+)\{[^}]*?background-color:)([^;}]+)([^}]*\})"),
 			 r"\1color-mix(in srgb,\3,var(--app-primary-foreground) 10%)\4"
 			 r".vscode-dark .userMessage_\2{background-color:#506195;color:hsla(0,0%,100%,.8)}"),
+			# Restyle the text of assistant replies: the markdown component's
+			# roots directly inside an assistant message (thinking, tool
+			# output and dialogs render that component inside other
+			# elements). Its CSS-module hash is captured from its inline-code
+			# rule. The text is set in Inter Display, listed under both the
+			# name "InterDisplay" and its family name "Inter Display" (the
+			# only one of the two that Chrome on Linux matches).
+			(re.compile(r"(\.root_([\w-]+) code\{[^}]*var\(--app-inline-code-foreground\)[^}]*\})"),
+			 r'\1[data-assistant-message]>.root_\2{font-family:InterDisplay,"Inter Display",var(--vscode-chat-font-family)}'),
 		],
 		"webview/index.js": [
 			# The two embedded Monaco diff editors (chat diffs and previews).
