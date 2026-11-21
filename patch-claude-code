@@ -102,6 +102,9 @@ EDITOR_FAMILY = "var(--vscode-editor-font-family)"
 # under both the name "InterDisplay" and its family name "Inter Display"
 # (the only one of the two that Chrome on Linux matches).
 TEXT_FONT = 'InterDisplay,"Inter Display"'
+# A selector (in an re.subn replacement string, with the markdown
+# component's CSS-module hash as group 2) for the text of assistant replies.
+REPLY_TEXT = r"[data-testid=assistant-message]>.root_\2"
 # The family variable, read at Monaco-editor construction time in JS.
 MONACO_FONT_FAMILY = (
 	'fontFamily:getComputedStyle(document.documentElement)'
@@ -244,19 +247,22 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			# Restyle the text of assistant replies: the markdown component's
 			# roots directly inside an assistant message (thinking, tool
 			# output and dialogs render that component inside other
-			# elements). Its CSS-module hash is captured from its inline-code
-			# rule. The text gets VS Code's markdown preview's default line
-			# height of 1.6, and in dark, non-high-contrast themes, is a
-			# little dimmer than the theme's text. Its inline code gets no
-			# background, no padding
-			# (whose vertical part, at display scales such as 125%, also
-			# drew the code a device pixel below the text's baseline), and
-			# the color of the text around it instead of the theme's color
-			# for preformatted text (yellow in dark themes).
+			# elements), found by the message's test ID, which every
+			# supported version has (unlike its data-assistant-message
+			# attribute, which is newer). The component's CSS-module hash is
+			# captured from its inline-code rule. The text gets VS Code's
+			# markdown preview's default line height of 1.6, and in dark,
+			# non-high-contrast themes, is a little dimmer than the theme's
+			# text. Its inline code gets no background, no padding (whose
+			# vertical part, at display scales such as 125%, also drew the
+			# code a device pixel below the text's baseline), and the color
+			# of the text around it instead of the theme's color for
+			# preformatted text (yellow in dark themes).
 			(re.compile(r"(\.root_([\w-]+) code\{[^}]*var\(--app-inline-code-foreground\)[^}]*\})"),
-			 (r"\1[data-assistant-message]>.root_\2{line-height:1.6}"
-			  r".vscode-dark [data-assistant-message]>.root_\2{color:#bbb}"
-			  r"[data-assistant-message]>.root_\2 code{color:inherit;background:none;padding:0}")),
+			 r"\1"
+			 + REPLY_TEXT + "{line-height:1.6}"
+			 + ".vscode-dark " + REPLY_TEXT + "{color:#bbb}"
+			 + REPLY_TEXT + " code{color:inherit;background:none;padding:0}"),
 			# VS Code's webview host styles scrollbars with ::-webkit-scrollbar
 			# rules (square, 10px wide, in its scrollbarSlider colors), but
 			# also sets scrollbar-color on html, and Chrome ignores those
