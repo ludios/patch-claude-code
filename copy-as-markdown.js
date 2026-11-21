@@ -113,7 +113,7 @@
 			let top = topElement(this.range);
 			const math = top.closest(".katex-display") ?? top.closest(".katex");
 			if (math)
-				return mathOf(math);
+				return this.math(math);
 			// A selection that is all code is copied as just that code.
 			if (top.closest("pre, code"))
 				return this.rawText(top);
@@ -155,12 +155,21 @@
 
 		/**
 		 * @param {Element} element  a selected, shown element
-		 * @returns {boolean} whether `element` is laid out as a block
+		 * @returns {boolean} whether `element` gives markdown blocks, rather
+		 *   than inline markdown: whether it is a markdown root, or is laid
+		 *   out as a block, or holds an element that is (as the webview's
+		 *   inline wrapper around a display formula does). Inline code and
+		 *   inline formulas give inline markdown however they are laid out
+		 *   (the "★ Insight" lines of a reply are inline code laid out as
+		 *   blocks).
 		 */
 		isBlock(element) {
 			if (element.matches(markdownRoot))
 				return true;
-			return !getComputedStyle(element).display.startsWith("inline");
+			if (element.matches("code, .katex"))
+				return false;
+			const laidOutAsBlock = (element) => !/^(inline|none|contents)/.test(getComputedStyle(element).display);
+			return laidOutAsBlock(element) || [...element.children].some(laidOutAsBlock);
 		}
 
 		/**
@@ -205,6 +214,18 @@
 		}
 
 		/**
+		 * @param {Element} math  a selected .katex (inline) or .katex-display
+		 *   (display) element, as KaTeX renders it
+		 * @returns {string} `math` between markdown math delimiters (see
+		 *   mathOf), or "" when the selection holds none of its drawn glyphs
+		 *   (it only touches the formula's edge)
+		 */
+		math(math) {
+			const drawn = this.rawText(math.querySelector(".katex-html") ?? math);
+			return drawn.replaceAll("\u200b", "").trim() === "" ? "" : mathOf(math);
+		}
+
+		/**
 		 * @param {Element} parent
 		 * @returns {string[]} the markdown of each block in the selected part of
 		 *   `parent`'s contents, where each run of inline content between
@@ -239,7 +260,7 @@
 		 */
 		block(element) {
 			if (element.matches(".katex-display"))
-				return mathOf(element);
+				return this.math(element);
 			const heading = /^H([1-6])$/.exec(element.tagName);
 			if (heading) {
 				const text = this.inline(element).trim();
@@ -368,8 +389,8 @@
 				return this.text(node);
 			if (!(node instanceof HTMLElement))
 				return "";
-			if (node.matches(".katex"))
-				return mathOf(node);
+			if (node.matches(".katex-display, .katex"))
+				return this.math(node);
 			switch (node.tagName) {
 				case "BR":
 					// A markdown hard line break.

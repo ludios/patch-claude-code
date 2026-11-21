@@ -26,7 +26,12 @@ ROOT = "root_test"
 OWN_PLAIN = "own"
 OWN_HTML  = "<b>own</b>"
 # The webview's rules that change what a copy gives.
-WEBVIEW_CSS = f".{ROOT} p {{white-space: pre-wrap}}"
+WEBVIEW_CSS = (
+	f".{ROOT} p {{white-space: pre-wrap}}"
+	# KaTeX's own rules.
+	" .katex-display {display: block}"
+	" .katex .katex-mathml {position: absolute; clip: rect(1px, 1px, 1px, 1px); width: 1px; height: 1px; overflow: hidden}"
+)
 CODE_BLOCK = (
 	'<div class="codeBlockWrapper"><button class="copyButton" style="opacity:0">'
 	'<svg viewBox="0 0 16 16"><path d="M0 0h16v16z"></path></svg></button>'
@@ -40,14 +45,17 @@ def markdown(html: str) -> str:
 
 
 def katex(tex: str, display: bool) -> str:
-	"""Return HTML shaped like KaTeX's rendering of `tex`, in display mode
-	when `display`."""
+	"""Return HTML shaped like the webview's rendering of `tex`, in display
+	mode when `display`: KaTeX's, whose drawn glyphs are the text
+	"rendered", in an inline wrapper."""
 	math = (
 		'<span class="katex"><span class="katex-mathml"><math><semantics><mrow><mi>x</mi></mrow>'
 		f'<annotation encoding="application/x-tex">{tex}</annotation></semantics></math></span>'
 		'<span class="katex-html" aria-hidden="true">rendered</span></span>'
 	)
-	return f'<span class="katex-display" style="display:block">{math}</span>' if display else math
+	if display:
+		math = f'<span class="katex-display">{math}</span>'
+	return f'<span data-redrawn="">{math}</span>'
 
 
 @dataclass(frozen=True)
@@ -60,9 +68,12 @@ class Case:
 	"""The text/plain that the copy must give, or None when the script must
 	leave the copy alone."""
 	select: tuple[str, str] | None = None
-	"""(the text where the selection starts, the text where it ends), each
-	found in the case's text (the end at or after the start); None selects
-	all of the case."""
+	"""(first, last): the selection runs from the start of the first
+	`first` in the case's text to the end of the first `last` at or after
+	it. A `first` that starts with "]" makes it start right after the rest
+	of `first`, and a `last` that starts with "[" makes it end right before
+	the rest of `last`, each in the text node that holds that text. None
+	selects all of the case."""
 	webview_copies: bool = True
 	"""Whether the stand-in for the webview's own copy listener makes the
 	copy (OWN_PLAIN and OWN_HTML) before the script's listener runs, as the
@@ -116,6 +127,16 @@ CASES = [
 	Case("math", markdown(
 		f'<p>Energy {katex("E = mc^2", False)} holds.</p>\n{katex(r"\int_0^1 x\,dx", True)}'),
 		"Energy $E = mc^2$ holds.\n\n$$\n\\int_0^1 x\\,dx\n$$"),
+	Case("display math between paragraphs", markdown(
+		f'<p>Before</p>\n{katex("a^2", True)}\n<p>After</p>'),
+		"Before\n\n$$\na^2\n$$\n\nAfter"),
+	Case("formula touched at its end", markdown(f'<p>Energy {katex("E", False)} holds.</p>'),
+		"holds", select=("]rendered", "holds")),
+	Case("formula touched at its start", markdown(f'<p>Para</p>\n{katex("E", True)}'),
+		"Para", select=("Para", "[rendered")),
+	Case("insight lines", markdown(
+		'<p><code style="display:block">★ Insight ─────</code>\nKey point\n<code style="display:block">─────</code></p>'),
+		"`★ Insight ─────`\nKey point\n`─────`"),
 	Case("inside a formula", markdown(f'<p>Energy {katex("E = mc^2", False)} holds.</p>'),
 		"$E = mc^2$", select=("rend", "ered")),
 	Case("inside a paragraph", markdown('<p>Hello <strong>bold</strong> world</p>'),
@@ -172,8 +193,8 @@ def page(cases: list[Case]) -> str:
 const OWN_PLAIN = {json.dumps(OWN_PLAIN)};
 const OWN_HTML  = {json.dumps(OWN_HTML)};
 
-// Return a Range from the first `first` in the text of `container` to the
-// end of the first `last` at or after it.
+// Return the Range in `container` that a Case's select = [first, last]
+// describes.
 function textRange(container, first, last) {{
 	const nodes = [];
 	let text = "";
@@ -182,18 +203,26 @@ function textRange(container, first, last) {{
 		nodes.push([walker.currentNode, text.length]);
 		text += walker.currentNode.data;
 	}}
-	const start = text.indexOf(first);
-	const end = text.indexOf(last, start) + last.length;
-	if (start < 0 || end < start + last.length)
+	const startsAfter = first.startsWith("]");
+	const endsBefore  = last.startsWith("[");
+	first = first.slice(startsAfter ? 1 : 0);
+	last  = last.slice(endsBefore ? 1 : 0);
+	const firstAt = text.indexOf(first);
+	const start   = startsAfter ? firstAt + first.length : firstAt;
+	const lastAt  = text.indexOf(last, start);
+	if (firstAt < 0 || lastAt < 0)
 		throw new Error(`no ${{JSON.stringify(first)}}...${{JSON.stringify(last)}} in ${{JSON.stringify(text)}}`);
-	const at = (offset, after) => {{
+	const end = endsBefore ? lastAt : lastAt + last.length;
+	// The text node and offset in it for `offset` in `text`; at the
+	// boundary of two text nodes, the first of them when `inFirst`.
+	const at = (offset, inFirst) => {{
 		const [node, nodeStart] = nodes.findLast(([node, nodeStart]) =>
-			after ? nodeStart < offset : nodeStart <= offset);
+			inFirst ? nodeStart < offset : nodeStart <= offset);
 		return [node, offset - nodeStart];
 	}};
 	const range = document.createRange();
-	range.setStart(...at(start, false));
-	range.setEnd(...at(end, true));
+	range.setStart(...at(start, startsAfter));
+	range.setEnd(...at(end, !endsBefore));
 	return range;
 }}
 
