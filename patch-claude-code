@@ -550,10 +550,10 @@ CREATED_FILES = {
 }
 
 
-def extension_dirs():
+def extension_dirs() -> list[Path]:
 	"""Return matching extension directories, newest version last.
 	Raises SystemExit when none exist."""
-	def version_key(path):
+	def version_key(path: Path) -> list[int]:
 		digits = re.findall(r"\d+", path.name)
 		return [int(d) for d in digits]
 	dirs = sorted(EXTENSIONS_ROOT.glob(EXTENSION_GLOB), key=version_key)
@@ -641,7 +641,7 @@ def apply_patterns(name: str, text: str, file_patterns: list[tuple[re.Pattern[st
 	return text, ok
 
 
-def patch_file(path, file_patterns):
+def patch_file(path: Path, file_patterns: list[tuple[re.Pattern[str], Replacement]]) -> bool:
 	"""Apply `file_patterns` to one file. The pristine original is kept at
 	<name>.orig-font and is re-read as the input on every run. Returns True
 	when every pattern matched."""
@@ -667,7 +667,7 @@ def create_file(path: Path, source: Path, file_patterns: list[tuple[re.Pattern[s
 	return ok
 
 
-def undo_dir(ext_dir):
+def undo_dir(ext_dir: Path) -> None:
 	"""Restore every .orig-font backup under `ext_dir` and delete it, and
 	delete the CREATED_FILES."""
 	backups = list(ext_dir.rglob(f"*{BACKUP_SUFFIX}"))
