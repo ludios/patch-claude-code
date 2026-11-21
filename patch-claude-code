@@ -4,13 +4,14 @@ chat follows the user's editor.fontFamily and editor.fontSize settings, so
 its model picker offers a fixed lineup of models, so its input footer shows
 how many tokens are in context, so a prompt stands out, is shown in full,
 and scrolls with the rest of the chat instead of staying pinned to its top,
-so its chat-font text is set in Inter Display, and the text of
-assistant replies is restyled for easier reading, so its scrollbars look
-like VS Code's own, so a Bash (or PowerShell) tool call's command wraps
-instead of being cut off at the edge, so most tool calls' clipped input and
-output say how many lines they hide instead of fading out, so copying text
-from the chat gives markdown, so a chat's editor tab shows a spinning logo
-while its session runs, and, on NixOS, so its native binary can run at all.
+so its chat-font text is set in Inter Display (where that is installed),
+so the text of assistant replies is restyled for easier reading, so its
+scrollbars look like VS Code's own, so a Bash (or PowerShell) tool call's
+command wraps instead of being cut off at the edge, so a tool call's
+clipped plain-text input or output says how many lines it hides instead
+of fading out, so copying text from the chat gives markdown, so a chat's
+editor tab shows a spinning logo while its session runs, and, on NixOS,
+so its native binary can run at all.
 
 VS Code injects the real editor font into every webview as the
 --vscode-editor-font-family / --vscode-editor-font-size (px) CSS variables,
@@ -42,22 +43,24 @@ surfaces hardcode their own sizes besides. This script patches:
                        "Added N lines", ...) back to the normal chat size;
                        set off prompts in the chat (in dark,
                        non-high-contrast themes, with a colored background
-                       and near-white text); set the text that is in
-                       the chat font in Inter Display instead, and the
-                       text of assistant replies at a line height of 1.6
-                       (in dark, non-high-contrast themes, in #bbb, a
-                       little dimmer than Dark Modern's text), with 1em
-                       between adjacent paragraphs that are not in a list
-                       or a quote, and with inline code in the color and
-                       at the x-height of the text around it, and with no
-                       background or padding; draw VS Code's square
-                       scrollbars instead of Chrome's, as wide as the
-                       editor's, and keep the fade at the bottom of the
-                       chat off its scrollbar; wrap the command in a Bash
-                       (or PowerShell) tool call's IN row; show exactly 3
-                       lines, without the fade, of a tool row's cell that
-                       says how many lines it hides (see index.js), and
-                       that count under it
+                       and near-white text); put Inter Display ahead of the
+                       chat font (and give text inputs the page's font, and
+                       the input footer's fixed-width texts tabular
+                       digits); set the text of assistant replies at a line
+                       height of 1.6 (in dark, non-high-contrast themes, in
+                       #bbb, a little dimmer than Dark Modern's text), with
+                       1em between adjacent paragraphs that are not in a
+                       list or a quote, and with inline code in the color
+                       and at the x-height of the text around it, and with
+                       no background or padding; draw VS Code's square
+                       scrollbars instead of Chrome's, with vertical ones
+                       14px wide (the editor's default), and keep the fade
+                       at the bottom of the chat off its scrollbar; wrap
+                       the command in a Bash (or PowerShell) tool call's IN
+                       row; show a clipped tool call cell whose text is one
+                       <pre> as exactly 3 lines, without the fade, and
+                       under it, how many more lines it hides (counted by
+                       an effect added in index.js)
   webview/index.js   - pass the family variable into the embedded Monaco
                        diff editors (they already take their size from the
                        size variable); hide the model picker's Default row,
@@ -67,8 +70,9 @@ surfaces hardcode their own sizes besides. This script patches:
                        through API errors; stop pinning each prompt to the
                        top of the chat while its turn scrolls by, and show
                        it in full instead of behind "Show more"; make the
-                       component that draws most tool rows' IN and OUT
-                       cells say how many lines it hides; insert
+                       component that draws most tool calls' IN and OUT
+                       cells (and the Write tool's preview) count the
+                       lines that it hides; insert
                        copy-as-markdown.js (from this script's directory),
                        which makes copying a selection that includes
                        rendered markdown give markdown as its plain text
@@ -138,7 +142,7 @@ REPLY_TEXT = REPLY + r">.root_\2"
 # A CSS condition for browsers that draw scrollbars by ::-webkit-scrollbar
 # rules, like Chrome (and so VS Code) does.
 WEBKIT_SCROLLBARS = "@supports selector(::-webkit-scrollbar)"
-# The family variable, read at Monaco-editor construction time in JS.
+# The editor's family variable, read at Monaco-editor construction time in JS.
 MONACO_FONT_FAMILY = (
 	'fontFamily:getComputedStyle(document.documentElement)'
 	'.getPropertyValue("--vscode-editor-font-family").trim()||void 0'
