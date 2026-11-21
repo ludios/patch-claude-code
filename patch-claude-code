@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Patch the Claude Code VS Code extension so every monospace surface in its
-chat follows the user's editor.fontFamily and editor.fontSize settings, so
+chat follows the user's editor.fontFamily setting, and every such surface
+except the inline code in assistant replies follows editor.fontSize too, so
 its model picker offers a fixed lineup of models, so its input footer shows
 how many tokens are in context, so a prompt stands out, is shown in full,
 and scrolls with the rest of the chat instead of staying pinned to its top,
@@ -34,9 +35,10 @@ surfaces hardcode their own sizes besides. This script patches:
                        (under 14px, a fraction of an em, a percentage,
                        inherit, or the chat font size, possibly minus some
                        px) var(--vscode-editor-font-size) instead (tool
-                       IN/OUT rows, header filenames, markdown inline code,
-                       slash-command echoes, permission requests, pills, git
-                       summaries, changed-file lists, MCP dialogs, ...);
+                       IN/OUT rows, header filenames, markdown inline code
+                       outside replies, slash-command echoes, permission
+                       requests, pills, git summaries, changed-file lists,
+                       MCP dialogs, ...);
                        also bring shrunken chat-font text (the
                        answered-AskUserQuestion review box, and the secondary
                        line under tool headers: "Answered · N questions",
@@ -131,9 +133,6 @@ EDITOR_FAMILY = "var(--vscode-editor-font-family)"
 # installed where VS Code draws its window (with Remote SSH, the client);
 # where it is not, the chat font is used.
 TEXT_FONT = 'InterDisplay,"Inter Display"'
-# The x-height of TEXT_FONT, as a fraction of its font size (Inter Display
-# 4.1's OS/2 sxHeight, 1056 of 2048 units per em).
-TEXT_FONT_X_HEIGHT = ".5156"
 # A selector for assistant replies, and one (in an re.subn replacement
 # string, with the markdown component's CSS-module hash as group 2) for the
 # text in them.
@@ -344,14 +343,18 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			# non-high-contrast themes, the text is #bbb (a little dimmer
 			# than the #ccc text of VS Code's Dark Modern), unless the reply
 			# failed (and so is in the theme's error color). Its inline code
-			# (code outside a <pre> and without a class; the "★ Insight"
-			# header and footer have one) gets no background, no padding
-			# (whose vertical part, at display scales such as 125%, also drew
-			# the code a device pixel below the text's baseline), the color
-			# of the text around it instead of the theme's color for
-			# preformatted text (yellow in some dark themes), and, instead of
-			# the editor's font size, the size at which its x-height is that
-			# of the text around it (where TEXT_FONT is installed).
+			# (code outside a <pre> and with no class attribute; the
+			# "★ Insight" header and footer have one) gets no background, no
+			# padding (whose vertical part, at display scales such as 125%,
+			# also drew the code a device pixel below the text's baseline),
+			# the color of the text around it instead of the theme's color
+			# for preformatted text (yellow in some dark themes), and the
+			# x-height of the text around it instead of the editor's font
+			# size: its font-size is 2ex (in a font-size, ex is the x-height
+			# of the parent's font), and font-size-adjust:.5 scales its font
+			# so that the x-height is half of that font-size. Its line height
+			# is 1, because at the text's 1.6, some editor fonts made lines
+			# with inline code up to 2px taller than the others.
 			(re.compile(r"(\.root_([\w-]+) code\{[^}]*var\(--app-inline-code-foreground\)[^}]*\})"),
 			 r"\1"
 			 + REPLY_TEXT + "{line-height:1.6}"
@@ -359,7 +362,7 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			 + REPLY_TEXT + ">p+p{margin-top:1em}"
 			 + ".vscode-dark " + REPLY + r":not([class*=failedReply_])>.root_\2{color:#bbb}"
 			 + REPLY_TEXT + " code:not([class],pre *){color:inherit;background:none;padding:0"
-			 + ";font-size:1em;font-size-adjust:" + TEXT_FONT_X_HEIGHT + "}"),
+			 + ";font-size:2ex;font-size-adjust:.5;line-height:1}"),
 			# VS Code's webview host styles scrollbars with ::-webkit-scrollbar
 			# rules (square, 10px wide, in its scrollbarSlider colors), but
 			# also sets scrollbar-color on html, and Chrome ignores those
