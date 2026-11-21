@@ -619,8 +619,9 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			(re.compile(r'\{(?=pending:"claude-logo-pending\.svg")'),
 			 '{running:"' + RUNNING_ICON + '",'),
 			# Have the webview's request to open an address show the commit
-			# that a commit link names (see index.js) instead, from the
-			# repository of the directory that the panel's chats run in.
+			# that a commit link names (see index.js) instead, looking first
+			# in the repository of the directory that the panel's chats run
+			# in (see COMMIT_LINKS's open).
 			(re.compile(r"(async openURL\(([\w$]+)\)\{)(?=if\(([\w$]+)\.env\.remoteName\))"),
 			 lambda match: f"{match[1]}if({match[2]}.startsWith({scheme}))"
 			               f"return({commit_links})({scheme}).open({match[3]},this.cwd,{match[2]});"),

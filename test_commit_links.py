@@ -1,7 +1,7 @@
-"""Tests for commit-links.js. Node runs the script once, with every case:
-its remark plugin on mdast trees shaped like remark-parse's, and its open
-function with a stand-in for the VS Code API (the Git extension's API, the
-commands and the warnings)."""
+"""Tests for commit-links.js. Each node process that a test starts runs the
+script on a list of cases: its remark plugin on mdast trees shaped like
+remark-parse's, or its open function with a stand-in for the VS Code API
+(the Git extension's API, the commands and the warnings)."""
 
 import json
 import shutil
@@ -63,8 +63,8 @@ const specs = JSON.parse(specsJson);
 // A stand-in for the VS Code API: `git` is "ok", "missing" (no Git
 // extension) or "disabled" (getAPI throws); each repository has a root and
 // {argument of getCommit: hash}; `own` is the root that getRepository(cwd)
-// gives (or null).
-function fakeVscode({git, repositories, own}, calls) {
+// gives (or null); `viewFails` makes the command that shows a commit throw.
+function fakeVscode({git, repositories, own, viewFails}, calls) {
 	const repository = ({root, commits}) => ({
 		rootUri: {fsPath: root},
 		async getCommit(ref) {
@@ -99,7 +99,13 @@ function fakeVscode({git, repositories, own}, calls) {
 				}),
 			},
 		},
-		commands: {executeCommand: async (...args) => calls.push(["executeCommand", ...args])},
+		commands: {
+			async executeCommand(...args) {
+				calls.push(["executeCommand", ...args]);
+				if (viewFails)
+					throw new Error("no such command");
+			},
+		},
 		window: {showWarningMessage: (message) => calls.push(["warning", message])},
 	};
 }
@@ -140,6 +146,10 @@ def run(specs: list[dict[str, object]]) -> list[object]:
 	return json.loads(output)
 
 
+# A position, as remark-parse gives each node.
+POSITION = {"start": {"line": 1, "column": 1, "offset": 0}, "end": {"line": 1, "column": 8, "offset": 7}}
+
+
 def paragraph(*children: dict[str, object]) -> dict[str, object]:
 	"""Return an mdast root that holds one paragraph of `children`."""
 	return {"type": "root", "children": [{"type": "paragraph", "children": list(children)}]}
@@ -160,9 +170,8 @@ def hast_link(id: str) -> dict[str, object]:
 
 
 def linked_ids(tree: dict[str, object]) -> list[str]:
-	"""Return the IDs of the links in `tree`'s paragraph, which must hold
-	only text and links, and check that the text is the paragraph's
-	text (as the reader sees it) unchanged."""
+	"""Return the IDs of the links in `tree`'s paragraph, after checking that
+	it holds only text nodes and links shaped like the plugin's."""
 	ids = []
 	for node in tree["children"][0]["children"]:
 		if node["type"] == "link":
@@ -174,7 +183,8 @@ def linked_ids(tree: dict[str, object]) -> list[str]:
 
 
 def shown_text(tree: dict[str, object]) -> str:
-	"""Return the text of `tree`'s paragraph, as the reader sees it."""
+	"""Return the text of `tree`'s paragraph (which holds only text nodes
+	and links of one text node each), as the reader sees it."""
 	return "".join(node["value"] if node["type"] == "text" else node["children"][0]["value"]
 	               for node in tree["children"][0]["children"])
 
@@ -183,8 +193,8 @@ def shown_text(tree: dict[str, object]) -> str:
 def text_results() -> list[object]:
 	"""Return the plugin's tree for a paragraph of each LINKED, then of
 	each UNLINKED, text."""
-	return run([{"tree": paragraph(text(value))} for value, _ in LINKED] +
-	           [{"tree": paragraph(text(value))} for value in UNLINKED])
+	return run([{"tree": paragraph(text(value) | {"position": POSITION})} for value, _ in LINKED] +
+	           [{"tree": paragraph(text(value) | {"position": POSITION})} for value in UNLINKED])
 
 
 @pytest.mark.parametrize(("index", "value", "ids"), [(i, *case) for i, case in enumerate(LINKED)], ids=[v for v, _ in LINKED])
@@ -196,14 +206,14 @@ def test_links_ids_in_text(text_results: list[object], index: int, value: str, i
 
 @pytest.mark.parametrize(("index", "value"), list(enumerate(UNLINKED)), ids=UNLINKED)
 def test_leaves_other_text_alone(text_results: list[object], index: int, value: str) -> None:
-	# The very same node, position and all.
-	assert text_results[len(LINKED) + index] == paragraph(text(value))
+	# The same node, position and all.
+	assert text_results[len(LINKED) + index] == paragraph(text(value) | {"position": POSITION})
 
 
 def test_tree_shapes() -> None:
 	"""Links come in nested inline nodes and inline code, but not in
 	existing links, code blocks or math."""
-	position = {"start": {"line": 1, "column": 1, "offset": 0}, "end": {"line": 1, "column": 8, "offset": 7}}
+	position = POSITION
 	inside = [
 		paragraph({"type": "strong", "children": [text(f"in {ID}")]}),
 		paragraph({"type": "link", "url": "https://example.com/", "title": None, "children": [text(ID)]}),
@@ -226,18 +236,24 @@ def test_tree_shapes() -> None:
 	]
 
 
+# A commit in another repository whose ID also starts with ID.
+OTHER = ID + "c" * 33
 REPOSITORIES = [
 	{"root": "/a", "commits": {}},
 	{"root": "/b", "commits": {f"{ID}^{{commit}}": FULL}},
-	{"root": "/c", "commits": {f"{ID}^{{commit}}": "c" * 40}},
+	{"root": "/c", "commits": {f"{ID}^{{commit}}": OTHER}},
 ]
 
 
 def open_spec(url: str = SCHEME + ID, git: str = "ok", own: str | None = None,
-              repositories: list[dict[str, object]] = REPOSITORIES) -> dict[str, object]:
-	"""Return a spec for running open(url) in the cwd "/cwd", whose
-	repository (as Git's getRepository finds it) is the one at `own`."""
-	return {"url": url, "cwd": "/cwd", "git": git, "own": own, "repositories": repositories}
+              repositories: list[dict[str, object]] = REPOSITORIES, view_fails: bool = False) -> dict[str, object]:
+	"""Return a spec for running open(url) in the cwd "/cwd". `git` is "ok",
+	"missing" (there is no Git extension) or "disabled" (its getAPI
+	throws); `repositories` are the repositories that Git has open, each
+	{root, commits: {argument of getCommit: the commit's hash}}; `own` is
+	the root of the one that Git's getRepository gives for the cwd (None:
+	none); `view_fails` makes the command that shows a commit throw."""
+	return {"url": url, "cwd": "/cwd", "git": git, "own": own, "repositories": repositories, "viewFails": view_fails}
 
 
 def get_commit(root: str) -> list[str]:
@@ -261,18 +277,27 @@ def test_open() -> None:
 		open_spec(url=SCHEME + ID + " --"),
 		open_spec(git="missing"),
 		open_spec(git="disabled"),
+		open_spec(repositories=[]),
+		# A branch named like the ID, in /a.
+		open_spec(repositories=[{"root": "/a", "commits": {f"{ID}^{{commit}}": "c" * 40}}, *REPOSITORIES[1:]]),
+		open_spec(view_fails=True),
 	])
-	no_commit = ["warning", f"No Git repository open in this window has a commit {ID}."]
+	no_commit = ["warning", f"No Git repository open in this window has exactly one commit whose ID starts with {ID}."]
+	no_repository = ["warning", f"Cannot look up commit {ID}: Git has no repository open in this window."]
 	assert results == [
 		# The first repository with the commit.
 		{"shown": True, "calls": [["getRepository", "/cwd"], get_commit("/a"), get_commit("/b"), view_commit("/b", FULL)]},
 		# The cwd's repository first.
-		{"shown": True, "calls": [["getRepository", "/cwd"], get_commit("/c"), view_commit("/c", "c" * 40)]},
+		{"shown": True, "calls": [["getRepository", "/cwd"], get_commit("/c"), view_commit("/c", OTHER)]},
 		{"shown": True, "calls": [["getRepository", "/cwd"], get_commit("/a"), get_commit("/b"), view_commit("/b", FULL)]},
 		{"shown": False, "calls": [["getRepository", "/cwd"], get_commit("/a"), no_commit]},
 		# Anything but an ID never gets to Git.
 		{"shown": False, "calls": [["warning", 'Not a commit ID: "--output=/tmp/x"']]},
 		{"shown": False, "calls": [["warning", f'Not a commit ID: "{ID} --"']]},
-		{"shown": False, "calls": [no_commit]},
+		{"shown": False, "calls": [no_repository]},
 		{"shown": False, "calls": [["warning", f"Cannot look up commit {ID}: Error: Git model not found"]]},
+		{"shown": False, "calls": [["getRepository", "/cwd"], no_repository]},
+		{"shown": True, "calls": [["getRepository", "/cwd"], get_commit("/a"), get_commit("/b"), view_commit("/b", FULL)]},
+		{"shown": False, "calls": [["getRepository", "/cwd"], get_commit("/a"), get_commit("/b"), view_commit("/b", FULL),
+		                           ["warning", f"Cannot show commit {ID}: Error: no such command"]]},
 	]
