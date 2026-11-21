@@ -8,9 +8,9 @@ so its chat-font text is set in Inter Display, and the text of
 assistant replies is restyled for easier reading, so its scrollbars look
 like VS Code's own, so a Bash (or PowerShell) tool call's command wraps
 instead of being cut off at the edge, so most tool calls' clipped input and
-output say how many lines they hide instead of fading out, so a chat's
-editor tab shows a spinning logo while its session runs, and, on NixOS, so
-its native binary can run at all.
+output say how many lines they hide instead of fading out, so copying text
+from the chat gives markdown, so a chat's editor tab shows a spinning logo
+while its session runs, and, on NixOS, so its native binary can run at all.
 
 VS Code injects the real editor font into every webview as the
 --vscode-editor-font-family / --vscode-editor-font-size (px) CSS variables,
@@ -68,7 +68,10 @@ surfaces hardcode their own sizes besides. This script patches:
                        top of the chat while its turn scrolls by, and show
                        it in full instead of behind "Show more"; make the
                        component that draws most tool rows' IN and OUT
-                       cells say how many lines it hides
+                       cells say how many lines it hides; insert
+                       copy-as-markdown.js (from this script's directory),
+                       which makes copying a selection that includes
+                       rendered markdown give markdown as its plain text
   resources/native-binary/claude
                      - on NixOS only: point its ELF interpreter at the
                        system's dynamic loader (taken from
@@ -94,6 +97,7 @@ import json
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 EXTENSIONS_ROOT = Path.home() / ".vscode-server" / "extensions"
@@ -105,6 +109,9 @@ NIXOS_LOADER_DONOR = "/run/current-system/sw/bin/sh"
 # The file name of the tab icon this script adds to the extension's
 # resources/, for a chat whose session is running.
 RUNNING_ICON = "claude-logo-running.svg"
+# The script that makes copying from the chat give markdown: a JS function
+# expression, which index.js gets along with a call to it.
+COPY_AS_MARKDOWN = Path(__file__).resolve().with_name("copy-as-markdown.js")
 
 EDITOR_SIZE   = "var(--vscode-editor-font-size,12px)"
 EDITOR_FAMILY = "var(--vscode-editor-font-family)"
@@ -240,11 +247,16 @@ def count_hidden_lines(cell: str) -> str:
 	)
 
 
-def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
+# An re.subn replacement: a template string, or a function of the match.
+Replacement = str | Callable[[re.Match[str]], str]
+
+
+def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]]]:
 	"""Return {relative file path: [(compiled regex, replacement)]} for one
-	extension directory. Replacements are re.subn replacement strings.
-	`mythos` says whether the model lineup includes Mythos."""
+	extension directory. `mythos` says whether the model lineup includes
+	Mythos."""
 	lineup = [entry for entry in MODEL_LINEUP if mythos or entry[0] != MYTHOS]
+	copy_as_markdown = COPY_AS_MARKDOWN.read_text(encoding="utf-8")
 	return {
 		"webview/index.css": [
 			# Every rule that uses the chat font (the page's, which the rest
@@ -437,6 +449,12 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			 r"\1\4(" + count_hidden_lines(r"\3.current") + r",[\2]),\4("),
 			(re.compile(r"(\{ref:[\w$]+,className:[\w$]+\.toolBodyRowContent)(?=,)"),
 			 r'\1+" pccCounted"'),
+			# Make copying from the chat give markdown: put the
+			# COPY_AS_MARKDOWN function right after the markdown component's
+			# CSS-module map (a statement at the top level of the module),
+			# and call it with a selector for that component's root class.
+			(re.compile(r'(var [\w$]+=\{root:"root_([\w-]+)",[^}]*codeBlockWrapper:[^}]*\};)'),
+			 lambda match: match[1] + copy_as_markdown + '(".root_' + match[2] + '");'),
 		],
 		"extension.js": [
 			# Feed the webview override from editor.* instead of chat.editor.*
@@ -541,7 +559,7 @@ def patch_interpreter(path: Path, interpreter: str) -> bool:
 	return True
 
 
-def apply_patterns(name: str, text: str, file_patterns: list[tuple[re.Pattern[str], str]]) -> tuple[str, bool]:
+def apply_patterns(name: str, text: str, file_patterns: list[tuple[re.Pattern[str], Replacement]]) -> tuple[str, bool]:
 	"""Apply `file_patterns`, (compiled regex, re.subn replacement) pairs, in
 	order to `text`, the contents of the file called `name` (for messages).
 	Returns the result, and whether every pattern matched; prints a warning
@@ -576,7 +594,7 @@ def patch_file(path, file_patterns):
 	return ok
 
 
-def create_file(path: Path, source: Path, file_patterns: list[tuple[re.Pattern[str], str]]) -> bool:
+def create_file(path: Path, source: Path, file_patterns: list[tuple[re.Pattern[str], Replacement]]) -> bool:
 	"""Write the file `path`: the extension file `source` with
 	`file_patterns` applied. Returns True when every pattern matched."""
 	if not source.is_file():
