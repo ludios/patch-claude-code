@@ -108,3 +108,10 @@ def test_write_atomically_keeps_permission_bits(target: Path) -> None:
 	patcher.write_atomically(target, PATCHED)
 	assert target.read_bytes() == PATCHED
 	assert target.stat().st_mode & 0o777 == 0o600
+
+
+def test_patching_keeps_line_endings(tmp_path: Path) -> None:
+	path = tmp_path / "index.js"
+	path.write_bytes(b"let size=13;\r\nlet x;\r")
+	assert patcher.patch_file(path, PATTERNS)
+	assert path.read_bytes() == b"let size=12;\r\nlet x;\r"

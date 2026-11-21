@@ -651,7 +651,7 @@ def patch_file(path, file_patterns):
 	backup = path.with_name(path.name + BACKUP_SUFFIX)
 	if not backup.exists():
 		write_atomically(backup, path.read_bytes())
-	text, ok = apply_patterns(path.name, backup.read_text(encoding="utf-8"), file_patterns)
+	text, ok = apply_patterns(path.name, backup.read_bytes().decode("utf-8"), file_patterns)
 	write_atomically(path, text.encode("utf-8"))
 	return ok
 
@@ -662,7 +662,7 @@ def create_file(path: Path, source: Path, file_patterns: list[tuple[re.Pattern[s
 	if not source.is_file():
 		print(f"  {path.name}: its source {source.name} is missing, skipped")
 		return False
-	text, ok = apply_patterns(path.name, source.read_text(encoding="utf-8"), file_patterns)
+	text, ok = apply_patterns(path.name, source.read_bytes().decode("utf-8"), file_patterns)
 	write_atomically(path, text.encode("utf-8"))
 	return ok
 
