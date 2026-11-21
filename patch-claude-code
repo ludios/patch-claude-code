@@ -273,6 +273,14 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			# puts TEXT_FONT ahead of it.
 			(re.compile(r"(?<![\w-])font-family:var\(--vscode-chat-font-family\)"),
 			 "font-family:" + TEXT_FONT + ",var(--vscode-chat-font-family)"),
+			# The input footer's fixed-width texts (spans that it re-fits
+			# its items around only when their length changes) get tabular
+			# digits only inside its indicators, so with TEXT_FONT's
+			# proportional digits, the tokens-in-context count (see
+			# index.js), which is outside them, changed width without the
+			# footer re-fitting. Give every fixed-width text tabular digits.
+			(re.compile(r"(span\.indicator_[\w-]+ span\[data-footer-fixed-width\]\{[^}]*\})"),
+			 r"\1[data-footer-fixed-width]{font-variant-numeric:tabular-nums}"),
 			# Monaco widget font (hovers, suggest details).
 			(re.compile(r"--monaco-monospace-font:"),
 			 "--monaco-monospace-font:" + EDITOR_FAMILY + ","),
