@@ -20,6 +20,8 @@ import pytest
 SCRIPT = Path(__file__).resolve().with_name("copy-as-markdown.js")
 # The class of the elements that hold rendered markdown, in the cases.
 ROOT = "root_test"
+# The scheme of the addresses of the links that the webview adds.
+ADDED_LINK_SCHEME = "git-commit:"
 # The text/plain and text/html of the copy that a copy listener on the
 # document, standing in for the webview's own, makes in a case with
 # webview_copies.
@@ -123,6 +125,9 @@ CASES = [
 		'<p><a href="README.md">README.md</a>, <a href="https://x.test/a.">https://x.test/a.</a>,'
 		' <a href="https://x.test/b">https://x.test/b</a></p>'),
 		"[README.md](README.md), [https://x.test/a.](https://x.test/a.), https://x.test/b"),
+	Case("added links", markdown(
+		'<p>In <a href="git-commit:11d4b47">11d4b47</a>, <code>git show <a href="git-commit:11d4b47">11d4b47</a></code></p>'),
+		"In 11d4b47, `git show 11d4b47`"),
 	Case("hard line break", markdown('<p>Hard<br>\nbreak</p>'),
 		"Hard  \nbreak"),
 	Case("quote and rule", markdown(
@@ -200,7 +205,7 @@ def page(cases: list[Case]) -> str:
 	specs = json.dumps([asdict(case) | {"html": None} for case in cases])
 	return f"""<!doctype html><html><head><meta charset="utf-8"><style>{WEBVIEW_CSS}</style></head><body>
 {body}
-<script>{SCRIPT.read_text(encoding="utf-8")}(".{ROOT}");</script>
+<script>{SCRIPT.read_text(encoding="utf-8")}(".{ROOT}", {json.dumps(ADDED_LINK_SCHEME)});</script>
 <script>
 const OWN_PLAIN = {json.dumps(OWN_PLAIN)};
 const OWN_HTML  = {json.dumps(OWN_HTML)};

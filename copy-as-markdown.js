@@ -1,6 +1,9 @@
 // Make copying from the chat give markdown. patch-claude-code puts this
 // function expression into the webview's index.js and calls it with a CSS
-// selector that matches every element holding rendered markdown.
+// selector that matches every element holding rendered markdown, and with
+// the scheme of the addresses of the links that patch-claude-code adds
+// to rendered markdown (commit-links.js's), which are not in the reply's
+// markdown.
 //
 // When a copy (Ctrl+C, or Copy in a context menu) is of a selection that
 // includes rendered markdown, its text/plain becomes GFM markdown made from
@@ -8,7 +11,8 @@
 // blocks, lists, quotes, tables, rules and KaTeX math (between "$"s, or
 // "$$"s for a display formula) come back as markdown syntax; any other
 // text (prompts, tool rows) comes back as the text that the page shows
-// for it.
+// for it. A link whose address has the added links' scheme comes back as
+// just its text.
 //
 // The markdown is made from the elements, not taken from the reply's
 // source, so it can differ from the source: a bullet is always "-",
@@ -28,7 +32,7 @@
 // selection, not just of those with math in them), so the text/html of the
 // copy stays the one that listener made.
 // oxlint-disable-next-line no-unused-expressions -- patch-claude-code calls it
-((markdownRoot) => {
+((markdownRoot, addedLinkScheme) => {
 	/**
 	 * @param {Range} range
 	 * @returns {Element} the innermost element that contains all of `range`
@@ -508,12 +512,13 @@
 		 * @param {string} text  the inline markdown of the selected part of
 		 *   `link`'s contents
 		 * @returns {string} `text` as a markdown link to `link`'s address, or
-		 *   just `text` when `link` has no address, when `text` is only
-		 *   whitespace, or when GFM makes the same link of `text` by itself
+		 *   just `text` when `link` has no address, when its address has
+		 *   `addedLinkScheme`, when `text` is only whitespace, or when GFM
+		 *   makes the same link of `text` by itself
 		 */
 		link(link, text) {
 			const href = link.getAttribute("href");
-			if (!href || text.trim() === "")
+			if (!href || href.startsWith(addedLinkScheme) || text.trim() === "")
 				return text;
 			// GFM links a bare web address (leaving out punctuation at its
 			// end) and a bare email address.

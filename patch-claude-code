@@ -10,9 +10,10 @@ so the text of assistant replies is restyled for easier reading, so its
 scrollbars look like VS Code's own, so a Bash (or PowerShell) tool call's
 command wraps instead of being cut off at the edge, so a tool call's
 clipped plain-text input or output says how many lines it hides instead
-of fading out, so copying text from the chat gives markdown, so a chat's
-editor tab shows a spinning logo while its session runs, and, on NixOS,
-so its native binary can run at all.
+of fading out, so copying text from the chat gives markdown, so a click
+on a commit ID in the chat shows that commit, so a chat's editor tab
+shows a spinning logo while its session runs, and, on NixOS, so its
+native binary can run at all.
 
 VS Code injects the real editor font into every webview as the
 --vscode-editor-font-family / --vscode-editor-font-size (px) CSS variables,
@@ -27,7 +28,11 @@ surfaces hardcode their own sizes besides. This script patches:
                        and DEFAULT_MODEL as its default model, and put the
                        model rows it answers with in lineup order, name-only,
                        re-adding Mythos when the CLI hides it; give a chat
-                       tab the RUNNING_ICON while its session is running
+                       tab the RUNNING_ICON while its session is running;
+                       have the webview's request to open an address show
+                       the commit instead, for a commit link's address
+                       (with commit-links.js, from this script's
+                       directory)
   resources/claude-logo-running.svg
                      - created: the plain logo, spinning
   webview/index.css  - point --monaco-monospace-font at the editor font, and
@@ -81,7 +86,13 @@ surfaces hardcode their own sizes besides. This script patches:
                        starts, and insert copy-as-markdown.js (from this
                        script's directory), which replaces the plain text
                        of such a copy with markdown when the selection
-                       includes rendered markdown
+                       includes rendered markdown (copying commit links as
+                       their text); insert commit-links.js, whose remark
+                       plugin makes each commit ID in markdown with live
+                       links a link to COMMIT_SCHEME + the ID, keep those
+                       addresses through react-markdown's URL sanitizing,
+                       and have a click on such a link ask the extension
+                       to open its address
   resources/native-binary/claude
                      - on NixOS only: point its ELF interpreter at the
                        system's dynamic loader (taken from
@@ -128,6 +139,12 @@ RUNNING_ICON = "claude-logo-running.svg"
 # The script that makes copying from the chat give markdown: a JS function
 # expression, which index.js gets along with a call to it.
 COPY_AS_MARKDOWN = Path(__file__).resolve().with_name("copy-as-markdown.js")
+# The script that makes each commit ID in the chat a link that shows the
+# commit: a JS function expression, which index.js and extension.js each
+# get along with a call to it with COMMIT_SCHEME.
+COMMIT_LINKS = Path(__file__).resolve().with_name("commit-links.js")
+# The scheme of the addresses of the links that COMMIT_LINKS makes.
+COMMIT_SCHEME = "git-commit:"
 
 EDITOR_SIZE   = "var(--vscode-editor-font-size,12px)"
 EDITOR_FAMILY = "var(--vscode-editor-font-family)"
@@ -273,6 +290,8 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 	Mythos."""
 	lineup = [entry for entry in MODEL_LINEUP if mythos or entry[0] != MYTHOS]
 	copy_as_markdown = COPY_AS_MARKDOWN.read_text(encoding="utf-8")
+	commit_links     = COMMIT_LINKS.read_text(encoding="utf-8")
+	scheme           = js_literal(COMMIT_SCHEME)
 	return {
 		"webview/index.css": [
 			# Every rule that uses the chat font (the page's, which the rest
@@ -523,9 +542,44 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			# the copies that that listener makes, right after the markdown
 			# component's CSS-module map (a statement at the top level of
 			# the module), and call it with a selector for that component's
-			# root class.
+			# root class and with the scheme of the commit links.
 			(re.compile(r'(var [\w$]+=\{root:"root_([\w-]+)",[^}]*codeBlockWrapper:[^}]*\};)'),
-			 lambda match: match[1] + copy_as_markdown + '(".root_' + match[2] + '");'),
+			 lambda match: match[1] + copy_as_markdown + '(".root_' + match[2] + '",' + scheme + ');'),
+			# Make each commit ID in markdown a link (see COMMIT_LINKS).
+			# The markdown component picks its remark plugins (and URL
+			# transform) by its links mode, "live" or "text" (which shows a
+			# link as its text and its address), in a function at the top
+			# level of the module, whose first statement is a return. Put
+			# COMMIT_LINKS's object right before that function, as
+			# pccCommitLinks, and wrap the function so that in "live" mode
+			# the plugins end with COMMIT_LINKS's.
+			(re.compile(r'(?<=;)function ([\w$]+)(\(([\w$]+),([\w$]+)\))\{'
+			            r'(?=return \3==="live"&&\4==="windows"\?\{remarkPlugins:)'),
+			 lambda match: f"var pccCommitLinks=({commit_links})({scheme});"
+			               f"function {match[1]}{match[2]}{{let pccOptions={match[1]}_pcc{match[2]};"
+			               f'return {match[3]}==="live"'
+			               f"?{{...pccOptions,remarkPlugins:[...pccOptions.remarkPlugins,pccCommitLinks.remarkPlugin]}}"
+			               f":pccOptions}}"
+			               f"function {match[1]}_pcc{match[2]}{{"),
+			# react-markdown's default URL transform empties every address
+			# whose scheme is not http(s), mailto, irc(s) or xmpp; have it
+			# keep a commit link's address.
+			(re.compile(r'(function [\w$]+\(([\w$]+)\)\{)(?=let [\w$]+=\2\.indexOf\(":"\),[\w$]+=\2\.indexOf\("\?"\),'
+			            r'[\w$]+=\2\.indexOf\("#"\),[\w$]+=\2\.indexOf\("/"\);)'),
+			 r"\1if(\2.startsWith(" + scheme + r"))return \2;"),
+			# A click on a markdown link goes to a function of (the event,
+			# the link's address, the file opener, the platform), which
+			# opens a file link's file and leaves any other link to the
+			# webview host (which ignores an address with an unknown
+			# scheme). Have it instead stop the event and ask the extension
+			# to open a commit link's address (see extension.js) ...
+			(re.compile(r"(function [\w$]+\(([\w$]+),([\w$]+),([\w$]+),([\w$]+)\)\{if\(!\3\)return;)"
+			            r"(?=if\([\w$]+\(\3,\5\)\)\{([\w$]+)\(\2\);)"),
+			 r"\1if(\3.startsWith(" + scheme + r")){\6(\2);\4?.openURL?.(\3);return}"),
+			# ... through an openURL added to that file opener, which works
+			# like the app's own openURL.
+			(re.compile(r"(?<=fileOpener=\{)(?=open:\(([\w$]+),([\w$]+)\)=>\{let ([\w$]+)=this\.comms\.connection\.value;)"),
+			 "openURL:(url)=>{this.comms.connection.value?.openURL(url)},"),
 		],
 		"extension.js": [
 			# Feed the webview override from editor.* instead of chat.editor.*
@@ -564,6 +618,12 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			# ... and add that icon to its {icon name: file name} map.
 			(re.compile(r'\{(?=pending:"claude-logo-pending\.svg")'),
 			 '{running:"' + RUNNING_ICON + '",'),
+			# Have the webview's request to open an address show the commit
+			# that a commit link names (see index.js) instead, from the
+			# repository of the directory that the panel's chats run in.
+			(re.compile(r"(async openURL\(([\w$]+)\)\{)(?=if\(([\w$]+)\.env\.remoteName\))"),
+			 lambda match: f"{match[1]}if({match[2]}.startsWith({scheme}))"
+			               f"return({commit_links})({scheme}).open({match[3]},this.cwd,{match[2]});"),
 		],
 	}
 
