@@ -43,12 +43,12 @@ surfaces hardcode their own sizes besides. This script patches:
                        and near-white text); set the text of assistant
                        replies in Inter Display at a line height of 1.6
                        (in dark, non-high-contrast themes, a little
-                       dimmer), with
-                       inline code in the same color and with no
-                       background or padding; draw VS Code's square scrollbars
-                       instead of Chrome's, and keep the fade at the
-                       bottom of the chat off its scrollbar; wrap the
-                       command in a Bash tool call's IN row
+                       dimmer), with inline code in the same color and
+                       with no background or padding; draw VS Code's
+                       square scrollbars instead of Chrome's, as wide as
+                       the editor's, and keep the fade at the bottom of
+                       the chat off its scrollbar; wrap the command in a
+                       Bash tool call's IN row
   webview/index.js   - pass the family variable into the embedded Monaco
                        diff editors (they already take their size from the
                        size variable); hide the model picker's Default row,
@@ -255,10 +255,11 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], str]]]:
 			# rules for any element with a scrollbar-color, drawing its own
 			# scrollbars instead (on Linux: a rounded thumb, arrow buttons
 			# and a colored track). Unset it, at the end of the file, so
-			# that VS Code's scrollbars are drawn. Elements that set their
-			# own scrollbar-color or scrollbar-width keep Chrome's.
+			# that VS Code's scrollbars are drawn, and make vertical ones
+			# 14px wide, the default width of the editor's. Elements that
+			# set their own scrollbar-color or scrollbar-width keep Chrome's.
 			(re.compile(r"\Z"),
-			 "html{scrollbar-color:auto}"),
+			 "html{scrollbar-color:auto}::-webkit-scrollbar{width:14px}"),
 			# The gradient that fades out the chat's bottom edge is an
 			# overlay that also covers the chat's scrollbar. Chrome paints
 			# an element's background under its scrollbar whatever its
