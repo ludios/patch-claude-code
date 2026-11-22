@@ -191,14 +191,14 @@ TEXT_FONT = 'InterDisplay,"Inter Display"'
 # text in them.
 REPLY      = "[data-testid=assistant-message]"
 REPLY_TEXT = REPLY + r">.root_\2"
-# CSS declarations that set an inline element's text (such as text in the
-# editor font) at the x-height of the text around it, whatever the fonts of
-# the two: in a font-size, ex is the x-height of the parent's font, and
+# CSS declarations that set an element's text (such as text in the editor
+# font) at the x-height of its parent's font, whatever the fonts of the
+# two: in a font-size, ex is the x-height of the parent's font, and
 # font-size-adjust:.5 scales the element's font so that its x-height is
-# half of the element's font-size. The line height is 1 because with a
-# larger one, some editor fonts made lines with such an element up to 2px
-# taller than the others.
-PARENT_X_HEIGHT = "font-size:2ex;font-size-adjust:.5;line-height:1"
+# half of the element's computed font-size. In a line of text, such an
+# element can make the line taller than the others, unless it also gets a
+# line height of 1.
+PARENT_X_HEIGHT = "font-size:2ex;font-size-adjust:.5"
 # The color of the lines of markdown tables: the input box's border color
 # with 10% of the theme's text color mixed in, so a little more visible.
 TABLE_LINE = "color-mix(in srgb,var(--app-input-border),var(--app-primary-foreground) 10%)"
@@ -407,14 +407,23 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			# ...) is shrunk to .85em; give it the normal chat size.
 			(re.compile(r"(\.secondaryLine_[\w-]+\{[^}]*?)" + FONT_SIZE + r"[^;}]+"),
 			 r"\1font-size:1em"),
-			# The text after the tool name in tool call headers (a file
-			# path or a URL, often as a link, a search pattern, a task ID,
-			# ...) is in the editor font at the editor size (made so by the
-			# sweep above), so with a chat font size larger than the editor
-			# font's, it looked smaller than the tool name. Set it at the
-			# x-height of the text around it.
-			(re.compile(r"(\.toolNameTextSecondary_[\w-]+\{[^}]*?)" + FONT_SIZE + r"[^;}]+"),
-			 r"\1" + PARENT_X_HEIGHT),
+			# The monospace text after the tool name in tool call headers
+			# (a file path or a URL, often as a link, a search pattern, a
+			# task ID, ...; the chat-font text there, such as Bash's
+			# description, has another class) is at the editor size (made
+			# so by the sweep above), so next to the tool name, it could
+			# look smaller (as with a 15px chat font and a 12px editor
+			# font). Set it at the x-height of the text around it. Its
+			# class is also used in the Agent map's rows of tool calls and
+			# for the "Open artifact ↗" link in some tool outputs. Its line
+			# height becomes 1 only in a tool call's header: there, at the
+			# chat's line height of 1.5, the larger text made a header
+			# about 1-2px taller than one without it, but in the Agent
+			# map's rows, it can be a flex item that hides what overflows
+			# it, and a line height of 1 cut off the descenders of some
+			# fonts (such as FreeMono).
+			(re.compile(r"(\.toolNameTextSecondary_([\w-]+)\{[^}]*?)" + FONT_SIZE + r"[^;}]+([^}]*\})"),
+			 r"\1" + PARENT_X_HEIGHT + r"\3.toolSummary_\2 .toolNameTextSecondary_\2{line-height:1}"),
 			# The "[Show Tab]" link in the headers of Claude in Chrome's
 			# tool calls is shrunk to .8em; give it the normal chat size.
 			(re.compile(r"(\.tabLink_[\w-]+\{[^}]*?)" + FONT_SIZE + r"[^;}]+"),
@@ -465,7 +474,9 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			# the color of the text around it instead of the theme's color
 			# for preformatted text (yellow in some dark themes), and the
 			# x-height of the text around it (PARENT_X_HEIGHT) instead of the
-			# editor's font size.
+			# editor's font size, with a line height of 1, because at the
+			# text's 1.6, some editor fonts made lines with inline code up to
+			# 2px taller than the others.
 			(re.compile(r"(\.root_([\w-]+) code\{[^}]*var\(--app-inline-code-foreground\)[^}]*\})"),
 			 r"\1"
 			 + REPLY_TEXT + "{line-height:1.6}"
@@ -475,7 +486,7 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			 + REPLY_TEXT + " :is(h1,h2,h3,h4,h5,h6) strong{font-weight:inherit}"
 			 + ".vscode-dark " + REPLY + r":not([class*=failedReply_])>.root_\2{color:#bbb}"
 			 + REPLY_TEXT + " code:not([class],pre *){color:inherit;background:none;padding:0"
-			 + ";" + PARENT_X_HEIGHT + "}"),
+			 + ";" + PARENT_X_HEIGHT + ";line-height:1}"),
 			# Markdown tables (in replies and elsewhere) have square
 			# corners, lines in the input box's border color, and 2px of
 			# padding in each cell. Draw their lines in TABLE_LINE, round
