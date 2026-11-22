@@ -13,7 +13,8 @@ cut off at the edge, so a tool call's clipped plain-text input or output
 says how many lines it hides instead of fading out, so copying text from
 the chat gives markdown, so a click on a commit ID in the chat shows that
 commit, so a chat's editor tab shows a spinning logo while its session
-runs (background tasks included), and, on NixOS, so its native binary can run at all.
+runs (background tasks included), so its input footer counts the running
+background tasks, and, on NixOS, so its native binary can run at all.
 
 VS Code injects the real editor font into every webview as the
 --vscode-editor-font-family / --vscode-editor-font-size (px) CSS variables,
@@ -75,7 +76,9 @@ surfaces hardcode their own sizes besides. This script patches:
                        row; show a clipped tool call cell whose text is one
                        <pre> as exactly 3 lines, without the fade, and
                        under it, how many more lines it hides (counted by
-                       an effect added in index.js)
+                       an effect added in index.js); pulse the dot of the
+                       input footer's Agents pill while it is the running
+                       dot
   webview/index.js   - pass the family variable into the embedded Monaco
                        diff editors (they already take their size from the
                        size variable); hide the model picker's Default row,
@@ -103,7 +106,10 @@ surfaces hardcode their own sizes besides. This script patches:
                        ID; keep each session's background tasks that the
                        CLI counts as activity, and report a session as
                        running (for its tab icon) while any of them runs,
-                       not just while an agent or a workflow does
+                       not just while an agent or a workflow does, and
+                       show the input footer's Agents pill (which opens
+                       the Agent map) then too, with the number of those
+                       tasks that are not agents in its label
   resources/native-binary/claude
                      - on NixOS only: point its ELF interpreter at the
                        system's dynamic loader (taken from
@@ -491,6 +497,13 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			 + "{mask-image:none;max-height:calc(4.5*" + EDITOR_SIZE + ");padding-bottom:0;margin-bottom:4px}"
 			 + "[data-pcc-more]::after"
 			 + "{content:attr(data-pcc-more);display:block;grid-column:2;padding:0 4px 4px;color:var(--app-secondary-foreground)}"),
+			# Pulse the dot of the input footer's Agents pill while it is
+			# the running dot (which index.js also makes it while background
+			# tasks run).
+			(re.compile(r"\Z"),
+			 "@media (prefers-reduced-motion:no-preference)"
+			 "{[data-agents-dot=running]>[data-status-dot=running]{animation:pccPulse 1.2s ease-in-out infinite}}"
+			 "@keyframes pccPulse{50%{opacity:.25}}"),
 		],
 		"webview/index.js": [
 			# The two embedded Monaco diff editors (chat diffs and previews).
@@ -668,6 +681,30 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			# ended too.
 			(re.compile(r"\(([\w$]+)\?\.backgroundTaskIds\.value\.size\?\?0\)>0"),
 			 r"(\1?.pccTasks.value.length??0)>0"),
+			# The input footer shows its Agents pill (left of the model
+			# pill), which opens the Agent map, only while the session has
+			# agents in that map. Show it also while any of those tasks
+			# runs, and add their number to the value made from the pill's
+			# label that the footer re-fits its items whenever it
+			# changes ...
+			(re.compile(r"(([\w$]+)=([\w$]+)\.agentMapAgents\.value,([\w$]+)=[\w$]+!==void 0&&)\2\.size>0,"
+			            r"([\w$]+)=\4\?([^:;]+):void 0;"),
+			 r'\1(\2.size>0||\3.pccTasks.value.length>0),\5=\4?\6+" "+\3.pccTasks.value.length:void 0;'),
+			# ... pass the pill the number of those tasks that are not
+			# agents (which it counts already) ...
+			(re.compile(r"(function [\w$]+\(\{session:([\w$]+),onOpen:([\w$]+)\}\)\{"
+			            r"[^}]*?\.agentMapAgents\.value[^}]*?,onOpen:\3)(?=\}\))"),
+			 r'\1,pccTasks:\2.pccTasks.value.filter((pccTask)=>pccTask.type!=="local_agent").length'),
+			# ... and while any of them runs, have the pill add it to its
+			# label ("1 agent · 2 tasks", or just "2 tasks" when no agent
+			# is working), show the running dot unless an agent waits for
+			# permission, and when no agent is working, say in its title
+			# that background tasks are running.
+			(re.compile(r"(function [\w$]+\(\{count:([\w$]+),dot:([\w$]+),onOpen:[\w$]+)(\}\)\{)"
+			            r"(let ([\w$]+)=[\w$]+\(\2\),([\w$]+)=[\w$]+\(\3\);)"),
+			 r'\1,pccTasks=0\4if(pccTasks>0&&\3!=="waiting")\3="running";\5'
+			 r'if(pccTasks>0){\6=(\2>0?\6+" · ":"")+pccTasks+(pccTasks===1?" task":" tasks");'
+			 r'if(\2===0&&\3==="running")\7="Background tasks are running · Click to open the agent map"}'),
 		],
 		"extension.js": [
 			# Feed the webview override from editor.* instead of chat.editor.*
