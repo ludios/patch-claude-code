@@ -754,16 +754,18 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 				(re.compile(r"(function [\w$]+\(\{session:([\w$]+),onOpen:([\w$]+)\}\)\{"
 				            r"[^}]*?\.agentMapAgents\.value[^}]*?,onOpen:\3)(?=\}\))"),
 				 r"\1,pccTasks:" + non_agent_tasks(r"\2")),
-				# ... and while any of them runs, have the pill add it to its
-				# label ("1 agent · 2 tasks", or just "2 tasks" when no agent
-				# is working), show the running dot unless an agent waits for
-				# permission, and when no agent is working, say in its title
-				# that background tasks are running.
+				# ... and while any of those tasks runs, have the pill show
+				# their number in its label after the number of working agents
+				# ("1 agent · 2 tasks", or just "2 tasks" when no agent is
+				# working), and show the running dot, with that label in its
+				# title ("2 tasks running · Click to open the agent map", which
+				# also shows the numbers when a narrow footer hides the label),
+				# unless an agent waits for permission.
 				(re.compile(r"(function [\w$]+\(\{count:([\w$]+),dot:([\w$]+),onOpen:[\w$]+)(\}\)\{)"
 				            r"(let ([\w$]+)=[\w$]+\(\2\),([\w$]+)=[\w$]+\(\3\);)"),
 				 r'\1,pccTasks=0\4if(pccTasks>0&&\3!=="waiting")\3="running";\5'
 				 r'if(pccTasks>0){\6=(\2>0?\6+" · ":"")+pccTasks+(pccTasks===1?" task":" tasks");'
-				 r'if(\2===0&&\3==="running")\7="Background tasks are running · Click to open the agent map"}'),
+				 r'if(\3==="running")\7=\6+" running · Click to open the agent map"}'),
 				# The chat shows its spinner row while the session is visibly
 				# busy (busy, with the extension host responding, and not held
 				# by another panel) and no permission prompt or question waits.
