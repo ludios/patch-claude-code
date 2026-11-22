@@ -159,24 +159,25 @@ def text(value: str) -> dict[str, object]:
 	return {"type": "text", "value": value}
 
 
-def link(id: str) -> dict[str, object]:
-	"""Return the mdast link that the plugin makes for the commit ID `id`."""
-	return {"type": "link", "url": SCHEME + id, "title": None, "children": [text(id)]}
-
-
 def hast_link(id: str) -> dict[str, object]:
 	"""Return the hast link that the plugin puts in inline code for `id`."""
 	return {"type": "element", "tagName": "a", "properties": {"href": SCHEME + id}, "children": [text(id)]}
 
 
+def linked_code(id: str) -> dict[str, object]:
+	"""Return the inline code that the plugin makes of the commit ID `id`
+	in a text node: code whose one child is the link."""
+	return {"type": "inlineCode", "value": id, "data": {"hChildren": [hast_link(id)]}}
+
+
 def linked_ids(tree: dict[str, object]) -> list[str]:
 	"""Return the IDs of the links in `tree`'s paragraph, after checking that
-	it holds only text nodes and links shaped like the plugin's."""
+	it holds only text nodes and inline code shaped like the plugin's."""
 	ids = []
 	for node in tree["children"][0]["children"]:
-		if node["type"] == "link":
-			assert node == link(node["children"][0]["value"])
-			ids.append(node["children"][0]["value"])
+		if node["type"] == "inlineCode":
+			assert node == linked_code(node["value"])
+			ids.append(node["value"])
 		else:
 			assert node["type"] == "text"
 	return ids
@@ -184,9 +185,8 @@ def linked_ids(tree: dict[str, object]) -> list[str]:
 
 def shown_text(tree: dict[str, object]) -> str:
 	"""Return the text of `tree`'s paragraph (which holds only text nodes
-	and links of one text node each), as the reader sees it."""
-	return "".join(node["value"] if node["type"] == "text" else node["children"][0]["value"]
-	               for node in tree["children"][0]["children"])
+	and inline code), as the reader sees it."""
+	return "".join(node["value"] for node in tree["children"][0]["children"])
 
 
 @pytest.fixture(scope="module")
@@ -227,7 +227,7 @@ def test_tree_shapes() -> None:
 	]
 	results = run([{"tree": tree} for tree in inside])
 	assert results == [
-		paragraph({"type": "strong", "children": [text("in "), link(ID)]}),
+		paragraph({"type": "strong", "children": [text("in "), linked_code(ID)]}),
 		*inside[1:5],
 		paragraph({"type": "inlineCode", "value": ID, "position": position, "data": {"hChildren": [hast_link(ID)]}}),
 		paragraph({"type": "inlineCode", "value": f"git show\n{ID}",

@@ -1,5 +1,5 @@
 // Turn each commit ID in the chat into a link that shows the commit in
-// VS Code.
+// VS Code, set as inline code (as a commit ID in backticks is).
 // patch-claude-code puts this function expression into both the webview's
 // index.js and extension.js, and calls it with the scheme of the links'
 // addresses (such as "git-commit:"). The webview uses the remarkPlugin
@@ -40,10 +40,19 @@
 	}
 
 	/**
+	 * @param {string} id  a commit ID
+	 * @returns {object} a hast link to `scheme` + `id`, whose text is `id`
+	 */
+	function hastLink(id) {
+		return {type: "element", tagName: "a", properties: {href: scheme + id}, children: [{type: "text", value: id}]};
+	}
+
+	/**
 	 * Replace each commit ID in the text under `parent`, an mdast node with
-	 * children, with a link to `scheme` + the ID: in a text node, with an
-	 * mdast link; in inline code, with a hast link inside the code element
-	 * that the inline code becomes. The text of links stays as it is.
+	 * children, with a hast link to `scheme` + the ID, inside the code
+	 * element that inline code becomes: in a text node, the ID becomes
+	 * inline code of its own; in inline code, the ID's link goes in among
+	 * the rest of the code's text. The text of links stays as it is.
 	 *
 	 * @param {{children: object[]}} parent
 	 */
@@ -55,7 +64,7 @@
 					return [node];
 				return pieces.map((piece) => typeof piece === "string"
 					? {type: "text", value: piece}
-					: {type: "link", url: scheme + piece.id, title: null, children: [{type: "text", value: piece.id}]});
+					: {type: "inlineCode", value: piece.id, data: {hChildren: [hastLink(piece.id)]}});
 			}
 			if (node.type === "inlineCode") {
 				// As mdast-util-to-hast makes the code element's text.
@@ -63,7 +72,7 @@
 				if (pieces.some((piece) => typeof piece !== "string")) {
 					const hChildren = pieces.map((piece) => typeof piece === "string"
 						? {type: "text", value: piece}
-						: {type: "element", tagName: "a", properties: {href: scheme + piece.id}, children: [{type: "text", value: piece.id}]});
+						: hastLink(piece.id));
 					node.data = {...node.data, hChildren};
 				}
 				return [node];

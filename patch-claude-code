@@ -115,7 +115,8 @@ surfaces hardcode their own sizes besides. This script patches:
                        includes rendered markdown (copying commit links as
                        their text); insert commit-links.js, whose remark
                        plugin makes each commit ID in markdown with live
-                       links a link to COMMIT_SCHEME + the ID, keep those
+                       links a link to COMMIT_SCHEME + the ID, set as
+                       inline code (even if it was not), keep those
                        addresses through react-markdown's URL sanitizing,
                        and have a click on such a link ask the extension
                        to open its address, and its "Copy Link" copy the
@@ -387,6 +388,16 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			# footer re-fitting. Give every fixed-width text tabular digits.
 			(re.compile(r"(span\.indicator_[\w-]+ span\[data-footer-fixed-width\]\{[^}]*\})"),
 			 r"\1[data-footer-fixed-width]{font-variant-numeric:tabular-nums}"),
+			# The input box (with the cards and permission prompts above
+			# it) is at most 680px wide. There, with the tokens-in-context
+			# count and the Agents pill's task count (see index.js) at a
+			# 15px chat font, the input footer shrank the Agents pill to
+			# its icon and moved the model pill down to a row of its own.
+			# Widen all four 680px rules to 56 times the chat font size
+			# (840px at 15px, 728px at the default 13px), because the
+			# footer's texts scale with that size.
+			(re.compile(r"(?<![\w-])max-width:680px(?=[;}])"),
+			 "max-width:calc(56*var(--vscode-chat-font-size,13px))"),
 			# Monaco widget font (hovers, suggest details).
 			(re.compile(r"--monaco-monospace-font:"),
 			 "--monaco-monospace-font:" + EDITOR_FAMILY + ","),

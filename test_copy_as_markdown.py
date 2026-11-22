@@ -126,8 +126,9 @@ CASES = [
 		' <a href="https://x.test/b">https://x.test/b</a></p>'),
 		"[README.md](README.md), [https://x.test/a.](https://x.test/a.), https://x.test/b"),
 	Case("links with the dropped scheme", markdown(
-		'<p>In <a href="git-commit:11d4b47">11d4b47</a>, <code>git show <a href="git-commit:11d4b47">11d4b47</a></code></p>'),
-		"In 11d4b47, `git show 11d4b47`"),
+		'<p>In <code><a href="git-commit:11d4b47">11d4b47</a></code>, <code>git show <a href="git-commit:11d4b47">11d4b47</a></code>,'
+		' <a href="git-commit:11d4b47">this commit</a></p>'),
+		"In `11d4b47`, `git show 11d4b47`, this commit"),
 	Case("hard line break", markdown('<p>Hard<br>\nbreak</p>'),
 		"Hard  \nbreak"),
 	Case("quote and rule", markdown(
