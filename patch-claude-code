@@ -5,15 +5,15 @@ except the inline code in assistant replies follows editor.fontSize too, so
 its model picker offers a fixed lineup of models, so its input footer shows
 how many tokens are in context, so a prompt stands out, is shown in full,
 and scrolls with the rest of the chat instead of staying pinned to its top,
-so its chat-font text is set in Inter Display (where that is installed),
-so the text of assistant replies is restyled for easier reading, so its
-scrollbars look like VS Code's own, so a Bash (or PowerShell) tool call's
-command wraps instead of being cut off at the edge, so a tool call's
-clipped plain-text input or output says how many lines it hides instead
-of fading out, so copying text from the chat gives markdown, so a click
-on a commit ID in the chat shows that commit, so a chat's editor tab
-shows a spinning logo while its session runs, and, on NixOS, so its
-native binary can run at all.
+so its chat-font text is set in Inter Display (where that is installed), so
+the text of assistant replies is restyled for easier reading, so its
+markdown tables look less cramped, so its scrollbars look like VS Code's
+own, so a Bash (or PowerShell) tool call's command wraps instead of being
+cut off at the edge, so a tool call's clipped plain-text input or output
+says how many lines it hides instead of fading out, so copying text from
+the chat gives markdown, so a click on a commit ID in the chat shows that
+commit, so a chat's editor tab shows a spinning logo while its session
+runs, and, on NixOS, so its native binary can run at all.
 
 VS Code injects the real editor font into every webview as the
 --vscode-editor-font-family / --vscode-editor-font-size (px) CSS variables,
@@ -61,8 +61,12 @@ surfaces hardcode their own sizes besides. This script patches:
                        between adjacent paragraphs that are not in a list
                        or a quote, and with inline code in the color
                        and at the x-height of the text around it, and with
-                       no background or padding; draw VS Code's square
-                       scrollbars instead of Chrome's, with vertical ones
+                       no background or padding; draw markdown tables
+                       with slightly brighter lines, rounded corners and
+                       .5em of space at each side of a cell's text, and
+                       in replies, 1em of space above and below each
+                       table, like between paragraphs; draw VS Code's
+                       square scrollbars instead of Chrome's, with vertical ones
                        14px wide (the editor's default), and keep the fade
                        at the bottom of the chat off its scrollbar; wrap
                        the command in a Bash (or PowerShell) tool call's IN
@@ -161,6 +165,9 @@ TEXT_FONT = 'InterDisplay,"Inter Display"'
 # text in them.
 REPLY      = "[data-testid=assistant-message]"
 REPLY_TEXT = REPLY + r">.root_\2"
+# The color of the lines of markdown tables: the input box's border color
+# with 10% of the theme's text color mixed in, so a little more visible.
+TABLE_LINE = "color-mix(in srgb,var(--app-input-border),var(--app-primary-foreground) 10%)"
 # A CSS condition for browsers that draw scrollbars by ::-webkit-scrollbar
 # rules, like Chrome (and so VS Code) does.
 WEBKIT_SCROLLBARS = "@supports selector(::-webkit-scrollbar)"
@@ -403,6 +410,31 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			 + ".vscode-dark " + REPLY + r":not([class*=failedReply_])>.root_\2{color:#bbb}"
 			 + REPLY_TEXT + " code:not([class],pre *){color:inherit;background:none;padding:0"
 			 + ";font-size:2ex;font-size-adjust:.5;line-height:1}"),
+			# Markdown tables (in replies and elsewhere) have square
+			# corners, lines in the input box's border color, and 2px of
+			# padding in each cell. Draw their lines in TABLE_LINE, round
+			# the table's corners by the webview's medium corner radius
+			# (6px; the input box's is 8px), and pad each cell by .5em at
+			# the left and right, about the space that the line height
+			# leaves above and below its text. Rounded corners need
+			# separate borders, not collapsed ones: the table draws the
+			# outer lines, and each cell draws its top and left line,
+			# unless the cell is in the table's first row or first column.
+			# The table's CSS-module hash is captured from the stock cell
+			# rule, after which these rules are inserted, so that they win.
+			# In replies, a table also gets the 1em of space that separates
+			# adjacent paragraphs there, above it and below it (except at
+			# the start and end of the element it is in).
+			(re.compile(r"(\.root_([\w-]+) th,\.root_\2 td\{[^}]*\})"),
+			 r"\1"
+			 r".root_\2 table{border-collapse:separate;border-spacing:0;border-color:" + TABLE_LINE
+			 + ";border-radius:var(--corner-radius-medium)}"
+			 r".root_\2 :is(th,td){border-width:1px 0 0 1px;border-color:" + TABLE_LINE
+			 + ";padding:2px .5em}"
+			 r".root_\2 tr>:first-child{border-left-width:0}"
+			 r".root_\2 table>:first-child>tr:first-child>*{border-top-width:0}"
+			 + REPLY_TEXT + " table:not(:first-child){margin-top:1em}"
+			 + REPLY_TEXT + " table:not(:last-child){margin-bottom:1em}"),
 			# VS Code's webview host styles scrollbars with ::-webkit-scrollbar
 			# rules (square, 10px wide, in its scrollbarSlider colors), but
 			# also sets scrollbar-color on html, and Chrome ignores those
