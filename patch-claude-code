@@ -17,7 +17,8 @@ AskUserQuestion prompt can be selected, so a click on a commit ID in the
 chat shows that commit, so a chat's editor tab shows a spinning logo while
 its session runs (background tasks included), so its input footer counts the
 running background tasks that are not agents, so the chat keeps a spinner
-after a turn while background tasks run, naming them, and, on NixOS, so its
+after a turn while background tasks run, naming them, so its input box is
+wide enough for all of its footer to fit on one row, and, on NixOS, so its
 native binary can run at all.
 
 VS Code injects the real editor font into every webview as the
@@ -94,7 +95,9 @@ surfaces hardcode their own sizes besides. This script patches:
                        already are (unless VS Code's
                        accessibility.underlineLinks setting is on);
                        make the text of a pending AskUserQuestion prompt
-                       selectable
+                       selectable; widen the input box (and the cards and
+                       permission prompts above it) from at most 680px to
+                       at most 56 times the chat font size
   webview/index.js   - pass the family variable into the embedded Monaco
                        diff editors (they already take their size from the
                        size variable); hide the model picker's Default row,
