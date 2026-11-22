@@ -12,14 +12,15 @@ easier reading, so its markdown tables look less cramped, so its scrollbars
 look like VS Code's own, so a Bash (or PowerShell) tool call's command wraps
 instead of being cut off at the edge, so a tool call's clipped plain-text
 input or output says how many lines it hides instead of fading out, so
-copying text from the chat gives markdown, so the question, options and
-option preview of a pending AskUserQuestion prompt can be selected, so a
-click on a commit ID in the chat shows that commit, so a chat's editor tab shows a spinning logo while
-its session runs (background tasks included), so its input footer counts the
-running background tasks that are not agents, so the chat keeps a spinner
-after a turn while background tasks run, naming them, so its input box is
-wide enough for all of its footer to fit on one row, and, on NixOS, so its
-native binary can run at all.
+copying text from the chat gives markdown, so the question tabs, question,
+options and option preview of a pending AskUserQuestion prompt can be
+selected, so a click on a commit ID in the chat shows that commit, so a
+chat's editor tab shows a spinning logo while its session runs (background
+tasks included), so its input footer counts the running background tasks
+that are not agents, so the chat keeps a spinner after a turn while
+background tasks run, naming them, so its input box is wide enough for all
+of its footer to fit on one row, and, on NixOS, so its native binary can
+run at all.
 
 VS Code injects the real editor font into every webview as the
 --vscode-editor-font-family / --vscode-editor-font-size (px) CSS variables,
@@ -96,9 +97,10 @@ surfaces hardcode their own sizes besides. This script patches:
                        accessibility.underlineLinks setting is on);
                        make the question and option preview of a pending
                        AskUserQuestion prompt selectable, and its options
-                       (once index.js marks them); widen the input box (and the cards and
-                       permission prompts above it) from at most 680px to
-                       at most 56 times the chat font size
+                       and question tabs (once index.js marks them);
+                       widen the input box (and the cards and permission
+                       prompts above it) from at most 680px to at most 56
+                       times the chat font size
   webview/index.js   - pass the family variable into the embedded Monaco
                        diff editors (they already take their size from the
                        size variable); hide the model picker's Default row,
@@ -125,10 +127,11 @@ surfaces hardcode their own sizes besides. This script patches:
                        addresses through react-markdown's URL sanitizing,
                        and have a click on such a link ask the extension
                        to open its address, and its "Copy Link" copy the
-                       ID; mark the options of an AskUserQuestion prompt
-                       for the CSS to make selectable, and have an option
+                       ID; mark the options and question tabs of an
+                       AskUserQuestion prompt for the CSS to make
+                       selectable, and have each such option or tab
                        ignore a click that ends a drag that selected some
-                       of the option's text; keep each session's
+                       of that option's or tab's text; keep each session's
                        background tasks that the CLI counts as activity,
                        and report a session as
                        running (for its tab icon) while any of them runs,
@@ -451,10 +454,11 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			# question tabs, question, options and option preview) could be
 			# selected. Make its question and option preview selectable, and
 			# every element that index.js marks with data-pcc-selectable (its
-			# options, whose clicks it makes ignore drags that select text;
-			# see SELECTABLE_CLICK). So if an update breaks that index.js
-			# pattern, the options stay unselectable, instead of becoming
-			# selectable with a drag in them picking them. The CSS-module hash
+			# options and question tabs, whose clicks it makes ignore drags
+			# that select text; see SELECTABLE_CLICK). So if an update breaks
+			# one of those index.js patterns, its elements stay unselectable,
+			# instead of becoming selectable with a drag in them acting as a
+			# click on them. The CSS-module hash
 			# is captured from the reviewBody rule, as above.
 			(re.compile(r"(\.reviewBody_([\w-]+)\{[^}]*\})"),
 			 r"\1:is(.questionHeader_\2,.previewPane_\2,[data-pcc-selectable]){user-select:text}"),
@@ -812,6 +816,11 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			# has no click handler when it is read-only.
 			(re.compile(r'(\{className:`\$\{[\w$]+\.option\} [^`]*`,[^{}]*?\?"checkbox":"radio",[^{}]*?,)'
 			            r'onClick:([\w$]+)(?=[,}])'),
+			 r"\1...(" + SELECTABLE_CLICK + r")(\2)"),
+			# The same for the prompt's question tabs (buttons), whose clicks
+			# switch to their questions (and unfold a folded prompt). Found
+			# by their `navTab` CSS-module class.
+			(re.compile(r'(\{className:`\$\{[\w$]+\.navTab\} [^`]*`,)onClick:(\(\)=>\{[^{}]*\})(?=,children:)'),
 			 r"\1...(" + SELECTABLE_CLICK + r")(\2)"),
 			# The background-task indicators, all or none (each pattern after
 			# the first uses the pccTasks field that the first adds).
