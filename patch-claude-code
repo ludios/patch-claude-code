@@ -12,9 +12,9 @@ easier reading, so its markdown tables look less cramped, so its scrollbars
 look like VS Code's own, so a Bash (or PowerShell) tool call's command wraps
 instead of being cut off at the edge, so a tool call's clipped plain-text
 input or output says how many lines it hides instead of fading out, so
-copying text from the chat gives markdown, so the text of a pending
-AskUserQuestion prompt can be selected, so a click on a commit ID in the
-chat shows that commit, so a chat's editor tab shows a spinning logo while
+copying text from the chat gives markdown, so the question, options and
+option preview of a pending AskUserQuestion prompt can be selected, so a
+click on a commit ID in the chat shows that commit, so a chat's editor tab shows a spinning logo while
 its session runs (background tasks included), so its input footer counts the
 running background tasks that are not agents, so the chat keeps a spinner
 after a turn while background tasks run, naming them, so its input box is
@@ -94,8 +94,9 @@ surfaces hardcode their own sizes besides. This script patches:
                        underline, as links that are children of paragraphs
                        already are (unless VS Code's
                        accessibility.underlineLinks setting is on);
-                       make the text of a pending AskUserQuestion prompt
-                       selectable; widen the input box (and the cards and
+                       make the question and option preview of a pending
+                       AskUserQuestion prompt selectable, and its options
+                       (once index.js marks them); widen the input box (and the cards and
                        permission prompts above it) from at most 680px to
                        at most 56 times the chat font size
   webview/index.js   - pass the family variable into the embedded Monaco
@@ -123,9 +124,10 @@ surfaces hardcode their own sizes besides. This script patches:
                        addresses through react-markdown's URL sanitizing,
                        and have a click on such a link ask the extension
                        to open its address, and its "Copy Link" copy the
-                       ID; have an option of an AskUserQuestion prompt
-                       ignore a click that leaves some of its text
-                       selected (as after a drag); keep each session's
+                       ID; mark the options of an AskUserQuestion prompt
+                       for the CSS to make selectable, and have an option
+                       ignore a click that ends a drag that selected some
+                       of the option's text; keep each session's
                        background tasks that the CLI counts as activity,
                        and report a session as
                        running (for its tab icon) while any of them runs,
@@ -226,6 +228,24 @@ TASKS_LABEL = (
 	'&&`${pccTasks.length} background ${pccTasks.length===1?"task":"tasks"}`'
 	'+pccTasks.map((pccTask)=>pccTask.description).filter(Boolean)'
 	'.map((description,index)=>(index>0?" · ":": ")+description).join("")'
+)
+# A JS function that takes the click handler of an element whose text is
+# to be selectable (or undefined, for no handler), and returns the React
+# props (or undefined) that give the element that handler and the
+# data-pcc-selectable attribute (which the CSS makes selectable). The
+# handler is not called for a click that ends a drag that selected text
+# in the element: one whose pointer moved more than 4px since it was
+# pressed on the element, while a selection that is not collapsed takes
+# in some of the element. (Chrome starts selecting text on any movement
+# of a pressed pointer, so a click whose pointer wobbles a little is
+# still a click.) A click that no pointer made (event.detail 0: by the
+# keyboard or by click()) is always passed on.
+SELECTABLE_CLICK = (
+	'(handler)=>handler&&{"data-pcc-selectable":"",'
+	'onMouseDown:(event)=>{event.currentTarget.pccPressedAt=[event.clientX,event.clientY]},'
+	'onClick:(event)=>{let element=event.currentTarget,pressedAt=element.pccPressedAt,selection=getSelection();'
+	'if(event.detail===0||Math.hypot(event.clientX-pressedAt[0],event.clientY-pressedAt[1])<=4'
+	'||selection.isCollapsed||!selection.containsNode(element,!0))handler(event)}}'
 )
 # The editor's family variable, read at Monaco-editor construction time in JS.
 MONACO_FONT_FAMILY = (
@@ -426,14 +446,17 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			 r".optionDescription_\2){font-size:1em}"),
 			# The webview's root sets user-select:none, and only some parts
 			# under it (such as the chat's messages) set it back to text, so
-			# no text of a pending AskUserQuestion prompt (its question
-			# tabs, question, options and option preview) could be
-			# selected. Make all of it selectable. The CSS-module hash is
-			# captured from the rule for the prompt's navigation bar (the
-			# one right after another rule, not those for it inside a
-			# .withPreview_ prompt).
-			(re.compile(r"((?<=\})\.navigationBar_([\w-]+)\{[^}]*\})"),
-			 r"\1:is(.navigationBar_\2,.questionsContainer_\2,.previewPane_\2){user-select:text}"),
+			# no text that a pending AskUserQuestion prompt shows (its
+			# question tabs, question, options and option preview) could be
+			# selected. Make its question and option preview selectable, and
+			# every element that index.js marks with data-pcc-selectable (its
+			# options, whose clicks it makes ignore drags that select text;
+			# see SELECTABLE_CLICK). So if an update breaks that index.js
+			# pattern, the options stay unselectable, instead of becoming
+			# selectable with a drag in them picking them. The CSS-module hash
+			# is captured from the reviewBody rule, as above.
+			(re.compile(r"(\.reviewBody_([\w-]+)\{[^}]*\})"),
+			 r"\1:is(.questionHeader_\2,.previewPane_\2,[data-pcc-selectable]){user-select:text}"),
 			# The secondary line under tool headers ("Answered · N
 			# questions", "Added N lines", tool descriptions, "Edit failed",
 			# ...) is shrunk to .85em; give it the normal chat size.
@@ -778,20 +801,17 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			(re.compile(r'(function [\w$]+\(\)\{navigator\.clipboard\.writeText\()([\w$]+)'
 			            r'(?=\),[\w$]+\(\)\}return [\w$]+\("div",\{ref:[\w$]+,className:[\w$]+\.contextMenu,[^;]*children:"Copy Link")'),
 			 r"\1\2.startsWith(" + scheme + r")?\2.slice(" + str(len(COMMIT_SCHEME)) + r"):\2"),
-			# The text of an AskUserQuestion prompt's options can be
-			# selected (see index.css), but a drag that selects some of an
-			# option's text ends in a click on the option, which picks it
-			# (and, in a single-choice question before the last, moves on to
-			# the next question). Have a click pick the option only if, once
-			# Chrome has handled the click (in a later task: a click on
-			# selected text makes the selection empty only after the click
-			# event), no selection that is not empty takes in some of the
-			# option. The option component is found by its role; it has no
-			# click handler when it is read-only.
-			(re.compile(r'(\?"checkbox":"radio",[^{}]*?,onClick:)([\w$]+)(?=[,}])'),
-			 r"\1\2&&((pccEvent)=>{let pccOption=pccEvent.currentTarget;setTimeout(()=>{"
-			 r"let pccSelection=getSelection();"
-			 r"if(pccSelection.isCollapsed||!pccSelection.containsNode(pccOption,!0))\2(pccEvent)})})"),
+			# Make the text of an AskUserQuestion prompt's options
+			# selectable (see index.css), with clicks that end a drag that
+			# selects some of an option's text not picking the option (which,
+			# in a single-choice question before the last, also moves on to
+			# the next question): give the option component's click handler
+			# to SELECTABLE_CLICK. The component is found by its class (an
+			# `option` CSS-module class) and its checkbox-or-radio role; it
+			# has no click handler when it is read-only.
+			(re.compile(r'(\{className:`\$\{[\w$]+\.option\} [^`]*`,[^{}]*?\?"checkbox":"radio",[^{}]*?,)'
+			            r'onClick:([\w$]+)(?=[,}])'),
+			 r"\1...(" + SELECTABLE_CLICK + r")(\2)"),
 			# The background-task indicators, all or none (each pattern after
 			# the first uses the pccTasks field that the first adds).
 			[
