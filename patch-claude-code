@@ -721,11 +721,14 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 				 r"\g<0>pccTasks=\1([]);"),
 				# ... set from each such set, with each description passed
 				# through the function that the session passes the descriptions
-				# in backgroundTasks through (which escapes bidi controls) ...
+				# in backgroundTasks through (which escapes bidi controls). It
+				# is set only when what it holds changes, as each change has
+				# the session's state reported to the extension again ...
 				(re.compile(r"(handleBackgroundTasksChanged\(([\w$]+)\)\{)"
 				            r"(?=[^}]*description:([\w$]+)\([\w$]+\.description\))"),
-				 r"\1this.pccTasks.value=\2.tasks.filter((pccTask)=>pccTask.ambient!==!0)"
-				 r".map((pccTask)=>({type:pccTask.task_type,description:\3(pccTask.description)}));"),
+				 r"\1let pccTasks=\2.tasks.filter((pccTask)=>pccTask.ambient!==!0)"
+				 r".map((pccTask)=>({type:pccTask.task_type,description:\3(pccTask.description)}));"
+				 r"if(JSON.stringify(pccTasks)!==JSON.stringify(this.pccTasks.value))this.pccTasks.value=pccTasks;"),
 				# ... and emptied wherever the session forgets its background
 				# tasks (when its CLI process restarts, for one).
 				(re.compile(r"(?<=clearBackgroundTasks\(\)\{)"),
