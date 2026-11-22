@@ -311,6 +311,11 @@ def test_ciphers_of_the_string(cipher: str) -> None:
 	assert found(f"echo {base64.b64encode(text.encode()).decode()}")
 
 
+def test_decodes_through_a_layer_of_mostly_punctuation() -> None:
+	text = TEXT_ENCODERS["Ascii85"](TEXT_ENCODERS["\\x escapes"]("Ada Lovelace"))  # >^/([>^/.`>^/.]...
+	assert found(f"echo {TEXT_ENCODERS['base16'](text)}")
+
+
 @settings(max_examples=300, deadline=None)
 @given(
 	spelling = st.sampled_from(SPELLINGS),

@@ -357,13 +357,15 @@ def inflate(data: bytes) -> Iterator[bytes]:
 
 def readable_runs(data: bytes) -> Iterator[str]:
 	"""Yield the readable runs of text (as UTF-8, or UTF-16 once NULs are
-	dropped), with at least MIN_ENTRY letters and digits, in `data` and in the
-	compressed streams it holds."""
+	dropped), at least MIN_ENTRY characters long, in `data` and in the
+	compressed streams it holds. A run with fewer letters and digits than
+	that can't match, but may still decode to one that does, as the Ascii85
+	of "\\x41\\x64..." does."""
 	for blob in (data, *inflate(data)):
 		if not MAYBE_READABLE.search(blob):
 			continue
 		text = blob.decode("utf-8", "replace").replace("\x00", "")
-		yield from (run for run in UNREADABLE.split(text) if len(run) >= MIN_ENTRY and len(normalize(run)) >= MIN_ENTRY)
+		yield from (run for run in UNREADABLE.split(text) if len(run) >= MIN_ENTRY)
 
 
 def character(code: int) -> str:
