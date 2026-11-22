@@ -44,7 +44,7 @@ Use `rg` in various ways until you know you need the rest of the file.
 
 If you're Claude and are spending a lot of time in hairy / complex code, ask Astra for help, with `run_in_background` (Astra can take several minutes):
 
-	codex exec -c model="gpt-6-astra" -c model_reasoning_effort="xhigh" -s read-only - 2> LOG_FILE <<'EOF'
+	codex exec -c model="gpt-6.2-astra" -c model_reasoning_effort="xhigh" -s read-only - 2> LOG_FILE <<'EOF'
 	PROMPT
 	EOF
 
@@ -164,6 +164,8 @@ When small commits are too hard with e.g. the build still working, larger commit
 
 **Use the imperative mood in the subject line**. Do not end the subject line with a period. Wrap the body at 72 characters, generally.
 
+Wherever you write a commit ID (in a file, a commit message, or the chat), give at least 12 hex digits, as `git log --oneline --abbrev=12` does, because a shorter prefix can become ambiguous as the repository grows. Where a tool or a path needs the full ID, keep it in full.
+
 Sample subject line:
 
 	Don't insert a file and rollback a transaction just to get the id
@@ -191,7 +193,7 @@ Automatically commit your changes with this commit template:
 
 # Code review after each commit
 
-After each commit made, get it reviewed by Codex and by Claude, all at xhigh reasoning, by running this in the repository, in one Bash call with `run_in_background` (the reviews can take many minutes):
+After each commit made, get it reviewed by Codex and by Claude, at xhigh reasoning effort (but Claude's fallback model at a lower effort), by running this in the repository, in one Bash call with `run_in_background` (the reviews can take many minutes):
 
 	review-commits <sha>
 
