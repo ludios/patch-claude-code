@@ -360,11 +360,12 @@ CODES = (
 
 def inflate(data: bytes) -> Iterator[bytes]:
 	"""Yield what each gzip, zlib, bzip2 or xz stream starting somewhere in
-	`data` decompresses to, up to an error in it. The last INFLATE_SLOWLY
-	bytes of `data` go in one at a time, so a stream whose decoding garbled
-	its end (a checksum or length) still yields what came before that.
-	Raises TooBigToInspect if one inflates past MAX_INFLATE bytes, as the
-	rest would go unchecked."""
+	`data` decompresses to. The last INFLATE_SLOWLY bytes of `data` go in one
+	at a time, so a stream with an error in them, such as a checksum or
+	length that a decoding garbled at its end, still yields what came before
+	the error; a stream with an error before them yields nothing. Raises
+	TooBigToInspect if one inflates past MAX_INFLATE bytes, as the rest
+	would go unchecked."""
 	for match in COMPRESSED.finditer(data):
 		decompressor = DECOMPRESSORS[match.lastindex - 1]()
 		stream       = data[match.start():]
