@@ -574,11 +574,13 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			 "[data-pcc-tasks]>*>:nth-child(2){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
 			 "[data-pcc-tasks]:hover>*>:nth-child(2){text-decoration:underline}"),
 			# Draw commit links (see COMMIT_LINKS) like VS Code's webview
-			# host draws a link that is a child of a paragraph: with its
-			# --text-link-decoration, which is none unless VS Code's
-			# accessibility.underlineLinks setting is on. Without this rule,
-			# Chrome underlines every other link, such as one in inline
-			# code or in a list item. (`scheme`, a JSON string with no
+			# host draws a link that is a child of a paragraph: with the
+			# host's --text-link-decoration (none unless VS Code's
+			# accessibility.underlineLinks setting is on), or with none
+			# where the host sets no such variable. Without this rule, a
+			# commit link that is not a child of a paragraph, such as one in
+			# inline code or in an item of a tight list, gets Chrome's
+			# default underline. (`scheme`, a JSON string with no
 			# backslash, is also a CSS string.)
 			(re.compile(r"\Z"),
 			 "a[href^=" + scheme + "]{text-decoration:var(--text-link-decoration,none)}"),
