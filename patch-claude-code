@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """Patch the Claude Code VS Code extension so every monospace surface in its
 chat follows the user's editor.fontFamily setting, and every such surface
-except the inline code in assistant replies and the monospace text after the
-tool name in tool call headers (and elsewhere with its CSS class) follows
+except the inline code in markdown and the monospace text after the tool
+name in tool call headers (and elsewhere with its CSS class) follows
 editor.fontSize too, so its model picker offers a fixed lineup of models, so
 its input footer shows how many tokens are in context, so a prompt stands
 out, is shown in full, and scrolls with the rest of the chat instead of
 staying pinned to its top, so its chat-font text is set in Inter Display
-(where that is installed), so the text of assistant replies is restyled for
-easier reading, so its markdown tables look less cramped, so its scrollbars
-look like VS Code's own, so a Bash (or PowerShell) tool call's command wraps
+(where that is installed), so the text of assistant replies (and the inline
+code in all of the chat's markdown) is restyled for easier reading, so its
+markdown tables look less cramped, so its scrollbars look like VS Code's
+own, so a Bash (or PowerShell) tool call's command wraps
 instead of being cut off at the edge, so a tool call's clipped plain-text
 input or output says how many lines it hides instead of fading out, so
 copying text from the chat gives markdown, so the question tabs, question,
@@ -47,7 +48,7 @@ surfaces hardcode their own sizes besides. This script patches:
                        (under 14px, a fraction of an em, a percentage,
                        inherit, or the chat font size, possibly minus some
                        px) var(--vscode-editor-font-size) instead (tool
-                       IN/OUT rows, markdown inline code outside replies,
+                       IN/OUT rows, markdown code blocks,
                        slash-command echoes, permission requests, pills,
                        git summaries, changed-file lists, MCP dialogs,
                        ...);
@@ -72,10 +73,12 @@ surfaces hardcode their own sizes besides. This script patches:
                        #bbb, a little dimmer than Dark Modern's text), with
                        headings at weight 600 instead of bold, with 1em
                        between adjacent paragraphs that are not in a list
-                       or a quote, and with inline code in the color
-                       and at the x-height of the text around it, and with
-                       no background or padding; draw markdown tables
-                       with slightly brighter lines, rounded corners and
+                       or a quote; set inline code in markdown (in replies,
+                       thinking, compaction summaries, option previews,
+                       ...) in the color and at the x-height of the text
+                       around it, with no background or padding; draw
+                       markdown tables with slightly brighter lines,
+                       rounded corners and
                        .5em of space at each side of a cell's text, with
                        each cell's text at the top of its row, and
                        in replies, 1em of space above and below each
@@ -552,17 +555,20 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			# weight, not the 900 of the browser's `bolder`. In dark,
 			# non-high-contrast themes, the text is #bbb (a little dimmer
 			# than the #ccc text of VS Code's Dark Modern), unless the reply
-			# failed (and so is in the theme's error color). Its inline code
-			# (code outside a <pre> and with no class attribute; the
-			# "★ Insight" header and footer have one) gets no background, no
-			# padding (whose vertical part, at display scales such as 125%,
-			# also drew the code a device pixel below the text's baseline),
-			# the color of the text around it instead of the theme's color
-			# for preformatted text (yellow in some dark themes), and the
-			# x-height of the text around it (PARENT_X_HEIGHT) instead of the
-			# editor's font size, with a line height of 1, because at the
-			# text's 1.6, some editor fonts made lines with inline code up to
-			# 2px taller than the others.
+			# failed (and so is in the theme's error color).
+			# Inline code (code outside a <pre> and with no class attribute;
+			# the "★ Insight" header and footer have one) in every root of
+			# the markdown component, in replies and elsewhere (thinking,
+			# compaction summaries, option previews, ...), gets no
+			# background, no padding (whose vertical part, at display scales
+			# such as 125%, also drew the code a device pixel below the
+			# text's baseline), the color of the text around it instead of
+			# the theme's color for preformatted text (yellow in some dark
+			# themes), and the x-height of the text around it
+			# (PARENT_X_HEIGHT) instead of the editor's font size, with a
+			# line height of 1, because at the replies' 1.6, some editor
+			# fonts made lines with inline code up to 2px taller than the
+			# others.
 			(re.compile(r"(\.root_([\w-]+) code\{[^}]*var\(--app-inline-code-foreground\)[^}]*\})"),
 			 r"\1"
 			 + REPLY_TEXT + "{line-height:1.6}"
@@ -571,7 +577,7 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			 + REPLY_TEXT + " :is(h1,h2,h3,h4,h5,h6){font-weight:600}"
 			 + REPLY_TEXT + " :is(h1,h2,h3,h4,h5,h6) strong{font-weight:inherit}"
 			 + ".vscode-dark " + REPLY + r":not([class*=failedReply_])>.root_\2{color:#bbb}"
-			 + REPLY_TEXT + " code:not([class],pre *){color:inherit;background:none;padding:0"
+			 r".root_\2 code:not([class],pre *){color:inherit;background:none;padding:0"
 			 + ";" + PARENT_X_HEIGHT + ";line-height:1}"),
 			# Markdown tables (in replies and elsewhere) have square
 			# corners, lines in the input box's border color, and 2px of
