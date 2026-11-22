@@ -1,5 +1,7 @@
-// Turn each commit ID in the chat into a link that shows the commit in
-// VS Code, set as inline code (as a commit ID in backticks is).
+// Turn each commit ID in the prose and inline code of the chat's markdown
+// into a link that shows the commit in VS Code. Every such link is shown
+// as inline code: an ID in inline code gets its link inside that code,
+// and an ID in prose becomes inline code of its own.
 // patch-claude-code puts this function expression into both the webview's
 // index.js and extension.js, and calls it with the scheme of the links'
 // addresses (such as "git-commit:"). The webview uses the remarkPlugin
@@ -48,11 +50,12 @@
 	}
 
 	/**
-	 * Replace each commit ID in the text under `parent`, an mdast node with
-	 * children, with a hast link to `scheme` + the ID, inside the code
-	 * element that inline code becomes: in a text node, the ID becomes
-	 * inline code of its own; in inline code, the ID's link goes in among
-	 * the rest of the code's text. The text of links stays as it is.
+	 * Link each commit ID in the text under `parent`, an mdast node with
+	 * children, to `scheme` + the ID, with a hast link inside the code
+	 * element that inline code becomes: a text node is cut into text nodes
+	 * and, for each ID, inline code of its own; inline code keeps its value
+	 * but gets hChildren (its code element's children) of its text and
+	 * links. The text of links stays as it is.
 	 *
 	 * @param {{children: object[]}} parent
 	 */

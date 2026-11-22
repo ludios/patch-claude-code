@@ -166,13 +166,15 @@ def hast_link(id: str) -> dict[str, object]:
 
 def linked_code(id: str) -> dict[str, object]:
 	"""Return the inline code that the plugin makes of the commit ID `id`
-	in a text node: code whose one child is the link."""
+	in a text node: its hChildren (the children of the code element that it
+	becomes) are just the link."""
 	return {"type": "inlineCode", "value": id, "data": {"hChildren": [hast_link(id)]}}
 
 
 def linked_ids(tree: dict[str, object]) -> list[str]:
 	"""Return the IDs of the links in `tree`'s paragraph, after checking that
-	it holds only text nodes and inline code shaped like the plugin's."""
+	it holds only text nodes and the inline code that the plugin makes of
+	an ID in a text node."""
 	ids = []
 	for node in tree["children"][0]["children"]:
 		if node["type"] == "inlineCode":
@@ -185,7 +187,8 @@ def linked_ids(tree: dict[str, object]) -> list[str]:
 
 def shown_text(tree: dict[str, object]) -> str:
 	"""Return the text of `tree`'s paragraph (which holds only text nodes
-	and inline code), as the reader sees it."""
+	and the inline code that the plugin makes of an ID in a text node), as
+	the reader sees it."""
 	return "".join(node["value"] for node in tree["children"][0]["children"])
 
 

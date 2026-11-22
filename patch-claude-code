@@ -118,9 +118,10 @@ surfaces hardcode their own sizes besides. This script patches:
                        of such a copy with markdown when the selection
                        includes rendered markdown (copying commit links as
                        their text); insert commit-links.js, whose remark
-                       plugin makes each commit ID in markdown with live
-                       links a link to COMMIT_SCHEME + the ID, set as
-                       inline code (even if it was not), keep those
+                       plugin makes each commit ID in the prose and inline
+                       code of markdown with live links a link to
+                       COMMIT_SCHEME + the ID, inside inline code (an ID
+                       in prose gets inline code of its own), keep those
                        addresses through react-markdown's URL sanitizing,
                        and have a click on such a link ask the extension
                        to open its address, and its "Copy Link" copy the
