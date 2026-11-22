@@ -586,21 +586,24 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			 "[data-pcc-tasks]>*>:first-child{flex-shrink:0}"
 			 "[data-pcc-tasks]>*>:nth-child(2){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
 			 "[data-pcc-tasks]:hover>*>:nth-child(2){text-decoration:underline}"),
-			# Draw every link in markdown (commit links included; see
-			# COMMIT_LINKS) like VS Code's webview host draws a link that is
-			# a child of a paragraph: with the host's --text-link-decoration
-			# (none unless VS Code's accessibility.underlineLinks setting is
-			# on), or with none where the host sets no such variable. Give
-			# inline code in a link (as in [`file.py`](file.py)) that
-			# decoration too. Without this rule, a link that is not a
-			# child of a paragraph (such as one in an item of a tight list,
-			# in bold text or in inline code) gets Chrome's default
-			# underline, and inline code in a link gets the host's own
-			# underline. The markdown component's CSS-module hash is
-			# captured from its rule for inline code in a link, after which
-			# this rule is inserted.
+			# Draw every link (<a>) in markdown, commit links included (see
+			# COMMIT_LINKS), like VS Code's webview host draws a link that
+			# is a child of a paragraph: with the host's
+			# --text-link-decoration (none unless VS Code's
+			# accessibility.underlineLinks setting is on), or with none
+			# where the host sets no such variable. Without this, Chrome
+			# underlines each link that is not a child of a paragraph and
+			# that no rule of the webview decorates, such as one in an item
+			# of a tight list or in bold text, or a commit link in inline
+			# code. Inline code in a link (as in [`file.py`](file.py)) gets
+			# no decoration of its own, so it shows only the link's, not
+			# also the underline that VS Code's webview hosts after 1.144
+			# give it. The markdown component's CSS-module hash is captured
+			# from its rule for inline code in a link, after which these
+			# rules are inserted.
 			(re.compile(r"(\.root_([\w-]+) a code\{[^}]*\})"),
-			 r"\1.root_\2 :is(a,a code){text-decoration:var(--text-link-decoration,none)}"),
+			 r"\1.root_\2 a{text-decoration:var(--text-link-decoration,none)}"
+			 r".root_\2 a code{text-decoration:none}"),
 		],
 		"webview/index.js": [
 			# The two embedded Monaco diff editors (chat diffs and previews).
