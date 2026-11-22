@@ -13,7 +13,7 @@ cut off at the edge, so a tool call's clipped plain-text input or output
 says how many lines it hides instead of fading out, so copying text from
 the chat gives markdown, so a click on a commit ID in the chat shows that
 commit, so a chat's editor tab shows a spinning logo while its session
-runs, and, on NixOS, so its native binary can run at all.
+runs (background tasks included), and, on NixOS, so its native binary can run at all.
 
 VS Code injects the real editor font into every webview as the
 --vscode-editor-font-family / --vscode-editor-font-size (px) CSS variables,
@@ -100,7 +100,10 @@ surfaces hardcode their own sizes besides. This script patches:
                        addresses through react-markdown's URL sanitizing,
                        and have a click on such a link ask the extension
                        to open its address, and its "Copy Link" copy the
-                       ID
+                       ID; keep each session's background tasks that the
+                       CLI counts as activity, and report a session as
+                       running (for its tab icon) while any of them runs,
+                       not just while an agent or a workflow does
   resources/native-binary/claude
                      - on NixOS only: point its ELF interpreter at the
                        system's dynamic loader (taken from
@@ -632,6 +635,39 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			(re.compile(r'(function [\w$]+\(\)\{navigator\.clipboard\.writeText\()([\w$]+)'
 			            r'(?=\),[\w$]+\(\)\}return [\w$]+\("div",\{ref:[\w$]+,className:[\w$]+\.contextMenu,[^;]*children:"Copy Link")'),
 			 r"\1\2.startsWith(" + scheme + r")?\2.slice(" + str(len(COMMIT_SCHEME)) + r"):\2"),
+			# Whenever the set of a session's live background tasks changes,
+			# the CLI sends the whole set, marking as ambient each task that
+			# is not activity (such as a watcher), for hosts to leave out of
+			# activity indicators. The session keeps the IDs of the agents
+			# and workflows among them (backgroundTaskIds) and the tasks
+			# that are not agents (backgroundTasks), but drops the ambient
+			# marks. Give each session a pccTasks signal, next to
+			# backgroundTaskIds, of the tasks in that set that are activity,
+			# as [{type, description}] ...
+			(re.compile(r"(?<=[;{])backgroundTaskIds=([\w$]+)\(new Set\);"),
+			 r"\g<0>pccTasks=\1([]);"),
+			# ... set from each such set, with each description passed
+			# through the function that the session passes the descriptions
+			# in backgroundTasks through (which escapes bidi controls) ...
+			(re.compile(r"(handleBackgroundTasksChanged\(([\w$]+)\)\{)"
+			            r"(?=[^}]*description:([\w$]+)\([\w$]+\.description\))"),
+			 r"\1this.pccTasks.value=\2.tasks.filter((pccTask)=>pccTask.ambient!==!0)"
+			 r".map((pccTask)=>({type:pccTask.task_type,description:\3(pccTask.description)}));"),
+			# ... and emptied wherever the session forgets its background
+			# tasks (when its CLI process restarts, for one).
+			(re.compile(r"(?<=clearBackgroundTasks\(\)\{)"),
+			 "if(this.pccTasks.value.length>0)this.pccTasks.value=[];"),
+			# Report a session as running (which gives its tab RUNNING_ICON,
+			# see extension.js) while any of those tasks runs, instead of
+			# only while an agent or a workflow does ...
+			(re.compile(r'(busy\.value,[\w$]+=)([\w$]+)\.backgroundTaskIds\.value\.size>0'
+			            r'(?=,[\w$]+;if\([\w$]+\)[\w$]+="waiting_input")'),
+			 r"\1\2.pccTasks.value.length>0"),
+			# ... and count it as busy for the same time, so that a chat
+			# hidden while it ran is marked as done only when they have
+			# ended too.
+			(re.compile(r"\(([\w$]+)\?\.backgroundTaskIds\.value\.size\?\?0\)>0"),
+			 r"(\1?.pccTasks.value.length??0)>0"),
 		],
 		"extension.js": [
 			# Feed the webview override from editor.* instead of chat.editor.*
