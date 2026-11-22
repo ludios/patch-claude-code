@@ -286,6 +286,12 @@ def models_fixup(lineup: list[tuple[str, str]]) -> str:
 	)
 
 
+def non_agent_tasks(session: str) -> str:
+	"""Return a JS expression for how many of the pccTasks (see index.js) of
+	the session that the JS expression `session` gives are not agents."""
+	return session + '.pccTasks.value.filter((pccTask)=>pccTask.type!=="local_agent").length'
+
+
 def count_hidden_lines(cell: str) -> str:
 	"""Return a JS effect callback for a tool call's clipped cell. While the
 	cell hides N lines of its text, the callback keeps the data-pcc-more
@@ -713,17 +719,18 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			# The input footer shows its Agents pill (left of the model
 			# pill), which opens the Agent map, only while the session has
 			# agents in that map. Show it also while any of those tasks
-			# runs, and add their number to the value made from the pill's
-			# label that the footer re-fits its items whenever it
-			# changes ...
+			# runs, and add the number of those that are not agents (the
+			# number that the pill adds to its label, see below) to the
+			# value made from the pill's label that the footer re-fits its
+			# items whenever it changes ...
 			(re.compile(r"(([\w$]+)=([\w$]+)\.agentMapAgents\.value,([\w$]+)=[\w$]+!==void 0&&)\2\.size>0,"
 			            r"([\w$]+)=\4\?([^:;]+):void 0;"),
-			 r'\1(\2.size>0||\3.pccTasks.value.length>0),\5=\4?\6+" "+\3.pccTasks.value.length:void 0;'),
+			 r'\1(\2.size>0||\3.pccTasks.value.length>0),\5=\4?\6+" "+' + non_agent_tasks(r"\3") + ":void 0;"),
 			# ... pass the pill the number of those tasks that are not
 			# agents (which it counts already) ...
 			(re.compile(r"(function [\w$]+\(\{session:([\w$]+),onOpen:([\w$]+)\}\)\{"
 			            r"[^}]*?\.agentMapAgents\.value[^}]*?,onOpen:\3)(?=\}\))"),
-			 r'\1,pccTasks:\2.pccTasks.value.filter((pccTask)=>pccTask.type!=="local_agent").length'),
+			 r"\1,pccTasks:" + non_agent_tasks(r"\2")),
 			# ... and while any of them runs, have the pill add it to its
 			# label ("1 agent · 2 tasks", or just "2 tasks" when no agent
 			# is working), show the running dot unless an agent waits for
