@@ -29,8 +29,8 @@ them; a longer file is too big to check, unless that start already matches.
 That text is also decoded, up to MAX_LAYERS decodings deep in any order,
 with: reversal, rot13, percent-decoding, HTML entities, \x \u and octal
 escapes, rows of character codes (binary, octal, decimal or hex), base2,
-base8, base16, base32 (RFC 4648, hex, Crockford, z-base-32), base36, base45,
-base58 (Bitcoin, Flickr), base62, base64 (standard, URL-safe), base85
+base8, base10, base16, base32 (RFC 4648, hex, Crockford, z-base-32), base36,
+base45, base58 (Bitcoin, Flickr), base62, base64 (standard, URL-safe), base85
 (Ascii85, RFC 1924, Z85), and gzip, zlib, bzip2 or xz inside any of those.
 Every decoding is searched for each string as written, reversed, shifted by
 any rot-N, or atbash'd. A decoding may garble the last few characters it
@@ -42,10 +42,14 @@ This inspects what Claude asks a tool to do, not the bytes that leave the
 machine: a Bash command that reads a string from a file at run time, or an
 encoding not listed above (XOR, a made-up alphabet, a string split up within
 an argument, a base-N run that is an ordinary word, ...), gets through.
-So can a base10, base36, base58 or base62 number under another code whose
-run takes in the characters next to it (base85's takes in most
-punctuation): that run decodes with garbled edges, which garble all of the
-number.
+A decoding reads whole runs of what it decodes, so a run can take in the
+characters next to an encoded string (base85's runs take in most
+punctuation). Taken into a base10, base36, base58 or base62 number, they
+garble all of it, and taken into a row of character codes, its first code,
+so the string can get through. Taken into another base-N code, they garble
+the edges of what it decodes to, which can let the string through if an
+edge holds such a number or row, or the end of a reversed string (which has
+to match whole).
 
 On a match the hook answers "deny", and its reason, REFUSAL, tells Claude to
 go on without the string; nobody has to answer a permission prompt. Its
