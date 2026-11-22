@@ -11,7 +11,8 @@
 // "$$"s for a display formula) come back as markdown syntax; any other
 // text (prompts, tool rows) comes back as the text that the page shows
 // for it. A link whose address has that scheme comes back as just its
-// text.
+// text, and so does inline code that holds just such a link (the way that
+// the chat shows a commit ID), without the code's backticks.
 //
 // The markdown is made from the elements, not taken from the reply's
 // source, so it can differ from the source: a bullet is always "-",
@@ -469,6 +470,9 @@
 					// A markdown hard line break.
 					return "  \n";
 				case "CODE":
+					if (node.childNodes.length === 1 && node.firstChild instanceof HTMLAnchorElement
+					    && node.firstChild.getAttribute("href")?.startsWith(droppedScheme))
+						return this.rawText(node);
 					return codeSpan(this.rawText(node));
 				case "IMG":
 					return `![${node.alt}](${node.getAttribute("src") ?? ""})`;
