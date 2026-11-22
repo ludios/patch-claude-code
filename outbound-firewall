@@ -42,10 +42,10 @@ This inspects what Claude asks a tool to do, not the bytes that leave the
 machine: a Bash command that reads a string from a file at run time, or an
 encoding not listed above (XOR, a made-up alphabet, a string split up within
 an argument, a base-N run that is an ordinary word, ...), gets through.
-So can a base10, base36, base58 or base62 number, or a compressed stream,
-under another code whose run takes in the characters next to it (base85's
-takes in most punctuation): that run decodes with garbled edges, which
-garble all of the number, and can keep the stream from inflating.
+So can a base10, base36, base58 or base62 number under another code whose
+run takes in the characters next to it (base85's takes in most
+punctuation): that run decodes with garbled edges, which garble all of the
+number.
 
 On a match the hook answers "deny", and its reason, REFUSAL, tells Claude to
 go on without the string; nobody has to answer a permission prompt. Its
@@ -95,6 +95,7 @@ MAX_LAYERS     = 3           # decodings stacked, e.g. rot13 of base64 of revers
 MAX_TEXT       = 100_000     # characters of tool input, or bytes of a file it names, to decode at all
 MAX_INSPECT    = 20_000_000  # characters of decoded text to search before giving up
 MAX_INFLATE    = 1_000_000   # bytes to decompress from one compressed stream
+INFLATE_SLOWLY = 64          # last bytes of decoded data to inflate one at a time, keeping what came before an error in them
 MIN_ENTRY      = 8           # letters and digits a blocked string needs, and that always have to match
 TAIL_SLACK     = 4           # trailing letters and digits a decoding may garble
 NOT_COMPARED   = re.compile(r"[\W_]+")
@@ -347,16 +348,27 @@ CODES = (
 
 def inflate(data: bytes) -> Iterator[bytes]:
 	"""Yield what each gzip, zlib, bzip2 or xz stream starting somewhere in
-	`data` decompresses to, as far as it gets. Raises TooBigToInspect if one
-	inflates past MAX_INFLATE bytes, as the rest would go unchecked."""
+	`data` decompresses to, up to an error in it. The last INFLATE_SLOWLY
+	bytes of `data` go in one at a time, so a stream whose decoding garbled
+	its end (a checksum or length) still yields what came before that.
+	Raises TooBigToInspect if one inflates past MAX_INFLATE bytes, as the
+	rest would go unchecked."""
 	for match in COMPRESSED.finditer(data):
+		decompressor = DECOMPRESSORS[match.lastindex - 1]()
+		stream       = data[match.start():]
+		head, tail   = stream[:-INFLATE_SLOWLY], stream[-INFLATE_SLOWLY:]
+		inflated     = b""
 		try:
-			inflated = DECOMPRESSORS[match.lastindex - 1]().decompress(data[match.start():], MAX_INFLATE)
+			for piece in (head, *(tail[i:i + 1] for i in range(len(tail)))):
+				if decompressor.eof or len(inflated) >= MAX_INFLATE:
+					break
+				inflated += decompressor.decompress(piece, MAX_INFLATE - len(inflated))
 		except (zlib.error, OSError, lzma.LZMAError):
-			continue
+			pass
 		if len(inflated) >= MAX_INFLATE:
 			raise TooBigToInspect(f"a compressed stream in it inflates past {MAX_INFLATE:,} bytes")
-		yield inflated
+		if inflated:
+			yield inflated
 
 
 def readable_runs(data: bytes) -> Iterator[str]:
