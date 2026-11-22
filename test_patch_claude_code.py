@@ -115,3 +115,11 @@ def test_patching_keeps_line_endings(tmp_path: Path) -> None:
 	path.write_bytes(b"let size=13;\r\nlet x;\r")
 	assert patcher.patch_file(path, PATTERNS)
 	assert path.read_bytes() == b"let size=12;\r\nlet x;\r"
+
+
+def test_group_is_applied_all_or_none() -> None:
+	declare = (re.compile(r"let x;"), "let x,y;")
+	use     = (re.compile(r"x\+1"), "y+1")
+	other   = (re.compile(r"f\("), "g(")
+	assert patcher.apply_patterns("t.js", "let x;f(x);", [[declare, use], other]) == ("let x;g(x);", False)
+	assert patcher.apply_patterns("t.js", "let x;f(x+1);", [[declare, use], other]) == ("let x,y;g(y+1);", True)

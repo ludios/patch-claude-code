@@ -322,10 +322,16 @@ def count_hidden_lines(cell: str) -> str:
 
 # An re.subn replacement: a template string, or a function of the match.
 Replacement = str | Callable[[re.Match[str]], str]
+# A pattern: (compiled regex, replacement).
+Pattern = tuple[re.Pattern[str], Replacement]
+# Patterns that depend on each other, such as one that adds a variable and
+# others that read it, so that a file must get either all of them or none
+# (see apply_patterns).
+Group = list[Pattern]
 
 
-def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]]]:
-	"""Return {relative file path: [(compiled regex, replacement)]} for one
+def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
+	"""Return {relative file path: [pattern or group of patterns]} for one
 	extension directory. `mythos` says whether the model lineup includes
 	Mythos."""
 	lineup = [entry for entry in MODEL_LINEUP if mythos or entry[0] != MYTHOS]
@@ -683,88 +689,92 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			(re.compile(r'(function [\w$]+\(\)\{navigator\.clipboard\.writeText\()([\w$]+)'
 			            r'(?=\),[\w$]+\(\)\}return [\w$]+\("div",\{ref:[\w$]+,className:[\w$]+\.contextMenu,[^;]*children:"Copy Link")'),
 			 r"\1\2.startsWith(" + scheme + r")?\2.slice(" + str(len(COMMIT_SCHEME)) + r"):\2"),
-			# Whenever the set of a session's live background tasks changes,
-			# the CLI sends the whole set, marking as ambient each task that
-			# is not activity (such as a watcher), for hosts to leave out of
-			# activity indicators. The session keeps the IDs of the agents
-			# and workflows among them (backgroundTaskIds) and the tasks
-			# that are not agents (backgroundTasks), but drops the ambient
-			# marks. Give each session a pccTasks signal, next to
-			# backgroundTaskIds, of the tasks in that set that are activity,
-			# as [{type, description}] ...
-			(re.compile(r"(?<=[;{])backgroundTaskIds=([\w$]+)\(new Set\);"),
-			 r"\g<0>pccTasks=\1([]);"),
-			# ... set from each such set, with each description passed
-			# through the function that the session passes the descriptions
-			# in backgroundTasks through (which escapes bidi controls) ...
-			(re.compile(r"(handleBackgroundTasksChanged\(([\w$]+)\)\{)"
-			            r"(?=[^}]*description:([\w$]+)\([\w$]+\.description\))"),
-			 r"\1this.pccTasks.value=\2.tasks.filter((pccTask)=>pccTask.ambient!==!0)"
-			 r".map((pccTask)=>({type:pccTask.task_type,description:\3(pccTask.description)}));"),
-			# ... and emptied wherever the session forgets its background
-			# tasks (when its CLI process restarts, for one).
-			(re.compile(r"(?<=clearBackgroundTasks\(\)\{)"),
-			 "if(this.pccTasks.value.length>0)this.pccTasks.value=[];"),
-			# Report a session as running (which gives its tab RUNNING_ICON,
-			# see extension.js) while any of those tasks runs, instead of
-			# only while an agent or a workflow does ...
-			(re.compile(r'(busy\.value,[\w$]+=)([\w$]+)\.backgroundTaskIds\.value\.size>0'
-			            r'(?=,[\w$]+;if\([\w$]+\)[\w$]+="waiting_input")'),
-			 r"\1\2.pccTasks.value.length>0"),
-			# ... and count it as busy for the same time, so that a chat
-			# hidden while it ran is marked as done only when they have
-			# ended too.
-			(re.compile(r"\(([\w$]+)\?\.backgroundTaskIds\.value\.size\?\?0\)>0"),
-			 r"(\1?.pccTasks.value.length??0)>0"),
-			# The input footer shows its Agents pill (left of the model
-			# pill), which opens the Agent map, only while the session has
-			# agents in that map. Show it also while any of those tasks
-			# runs, and add the number of those that are not agents (the
-			# number that the pill adds to its label, see below) to the
-			# value made from the pill's label that the footer re-fits its
-			# items whenever it changes ...
-			(re.compile(r"(([\w$]+)=([\w$]+)\.agentMapAgents\.value,([\w$]+)=[\w$]+!==void 0&&)\2\.size>0,"
-			            r"([\w$]+)=\4\?([^:;]+):void 0;"),
-			 r'\1(\2.size>0||\3.pccTasks.value.length>0),\5=\4?\6+" "+' + non_agent_tasks(r"\3") + ":void 0;"),
-			# ... pass the pill the number of those tasks that are not
-			# agents (which it counts already) ...
-			(re.compile(r"(function [\w$]+\(\{session:([\w$]+),onOpen:([\w$]+)\}\)\{"
-			            r"[^}]*?\.agentMapAgents\.value[^}]*?,onOpen:\3)(?=\}\))"),
-			 r"\1,pccTasks:" + non_agent_tasks(r"\2")),
-			# ... and while any of them runs, have the pill add it to its
-			# label ("1 agent · 2 tasks", or just "2 tasks" when no agent
-			# is working), show the running dot unless an agent waits for
-			# permission, and when no agent is working, say in its title
-			# that background tasks are running.
-			(re.compile(r"(function [\w$]+\(\{count:([\w$]+),dot:([\w$]+),onOpen:[\w$]+)(\}\)\{)"
-			            r"(let ([\w$]+)=[\w$]+\(\2\),([\w$]+)=[\w$]+\(\3\);)"),
-			 r'\1,pccTasks=0\4if(pccTasks>0&&\3!=="waiting")\3="running";\5'
-			 r'if(pccTasks>0){\6=(\2>0?\6+" · ":"")+pccTasks+(pccTasks===1?" task":" tasks");'
-			 r'if(\2===0&&\3==="running")\7="Background tasks are running · Click to open the agent map"}'),
-			# The chat shows its spinner row while the session is visibly
-			# busy (busy, with the extension host responding, and not held
-			# by another panel) and no permission prompt or question waits.
-			# Show it also while the session is not busy but any of those
-			# tasks runs (with the host responding, and not held by another
-			# panel), with TASKS_LABEL's label in place of the random
-			# verbs: given a label, the row's usual spinner shows it
-			# instead of them (the engine surface's spinner, which takes no
-			# label, is not used then). A click on the row clicks the
-			# footer's Agents pill (shown while those tasks run), which
-			# opens the Agent map, where the tasks are listed. (Calling the
-			# function that the pill calls instead would take a pattern
-			# that spans the code from that function's definition to the
-			# row.) Found by the flag that says when to show the row.
-			(re.compile(r"let ([\w$]+)=(([\w$]+)\.visiblyBusy\.value)"
-			            r"(&&!\3\.permissionRequests\.value\.length&&!\3\.userDialogRequests\.value\.length,"
-			            r'[\w$]+=([\w$]+)\("div",\{className:[\w$]+\.spinnerRow,children:\5\("div",\{)'
-			            r"(className:[\w$]+\.spinner,children:\1&&\(\3\.engineSurface)"
-			            r"(\?[^;]*?:\5\([\w$]+,\{)(?=permissionMode:)"),
-			 r"let pccLabel=!\3.busy.value&&!\3.context.hostUnresponsive.value&&!\3.heldElsewhere.value"
-			 r"&&(" + TASKS_LABEL + r")(\3.pccTasks.value),\1=(\2||pccLabel)\4"
-			 r'...(pccLabel&&{"data-pcc-tasks":"",title:pccLabel+" · Click to open the agent map",'
-			 r'onClick:()=>document.querySelector("[data-agents-dot]")?.click()}),'
-			 r"\6&&!pccLabel\7label:pccLabel||void 0,"),
+			# The background-task indicators, all or none (each pattern after
+			# the first uses the pccTasks field that the first adds).
+			[
+				# Whenever the set of a session's live background tasks changes,
+				# the CLI sends the whole set, marking as ambient each task that
+				# is not activity (such as a watcher), for hosts to leave out of
+				# activity indicators. The session keeps the IDs of the agents
+				# and workflows among them (backgroundTaskIds) and the tasks
+				# that are not agents (backgroundTasks), but drops the ambient
+				# marks. Give each session a pccTasks signal, next to
+				# backgroundTaskIds, of the tasks in that set that are activity,
+				# as [{type, description}] ...
+				(re.compile(r"(?<=[;{])backgroundTaskIds=([\w$]+)\(new Set\);"),
+				 r"\g<0>pccTasks=\1([]);"),
+				# ... set from each such set, with each description passed
+				# through the function that the session passes the descriptions
+				# in backgroundTasks through (which escapes bidi controls) ...
+				(re.compile(r"(handleBackgroundTasksChanged\(([\w$]+)\)\{)"
+				            r"(?=[^}]*description:([\w$]+)\([\w$]+\.description\))"),
+				 r"\1this.pccTasks.value=\2.tasks.filter((pccTask)=>pccTask.ambient!==!0)"
+				 r".map((pccTask)=>({type:pccTask.task_type,description:\3(pccTask.description)}));"),
+				# ... and emptied wherever the session forgets its background
+				# tasks (when its CLI process restarts, for one).
+				(re.compile(r"(?<=clearBackgroundTasks\(\)\{)"),
+				 "if(this.pccTasks.value.length>0)this.pccTasks.value=[];"),
+				# Report a session as running (which gives its tab RUNNING_ICON,
+				# see extension.js) while any of those tasks runs, instead of
+				# only while an agent or a workflow does ...
+				(re.compile(r'(busy\.value,[\w$]+=)([\w$]+)\.backgroundTaskIds\.value\.size>0'
+				            r'(?=,[\w$]+;if\([\w$]+\)[\w$]+="waiting_input")'),
+				 r"\1\2.pccTasks.value.length>0"),
+				# ... and count it as busy for the same time, so that a chat
+				# hidden while it ran is marked as done only when they have
+				# ended too.
+				(re.compile(r"\(([\w$]+)\?\.backgroundTaskIds\.value\.size\?\?0\)>0"),
+				 r"(\1?.pccTasks.value.length??0)>0"),
+				# The input footer shows its Agents pill (left of the model
+				# pill), which opens the Agent map, only while the session has
+				# agents in that map. Show it also while any of those tasks
+				# runs, and add the number of those that are not agents (the
+				# number that the pill adds to its label, see below) to the
+				# value made from the pill's label that the footer re-fits its
+				# items whenever it changes ...
+				(re.compile(r"(([\w$]+)=([\w$]+)\.agentMapAgents\.value,([\w$]+)=[\w$]+!==void 0&&)\2\.size>0,"
+				            r"([\w$]+)=\4\?([^:;]+):void 0;"),
+				 r'\1(\2.size>0||\3.pccTasks.value.length>0),\5=\4?\6+" "+' + non_agent_tasks(r"\3") + ":void 0;"),
+				# ... pass the pill the number of those tasks that are not
+				# agents (which it counts already) ...
+				(re.compile(r"(function [\w$]+\(\{session:([\w$]+),onOpen:([\w$]+)\}\)\{"
+				            r"[^}]*?\.agentMapAgents\.value[^}]*?,onOpen:\3)(?=\}\))"),
+				 r"\1,pccTasks:" + non_agent_tasks(r"\2")),
+				# ... and while any of them runs, have the pill add it to its
+				# label ("1 agent · 2 tasks", or just "2 tasks" when no agent
+				# is working), show the running dot unless an agent waits for
+				# permission, and when no agent is working, say in its title
+				# that background tasks are running.
+				(re.compile(r"(function [\w$]+\(\{count:([\w$]+),dot:([\w$]+),onOpen:[\w$]+)(\}\)\{)"
+				            r"(let ([\w$]+)=[\w$]+\(\2\),([\w$]+)=[\w$]+\(\3\);)"),
+				 r'\1,pccTasks=0\4if(pccTasks>0&&\3!=="waiting")\3="running";\5'
+				 r'if(pccTasks>0){\6=(\2>0?\6+" · ":"")+pccTasks+(pccTasks===1?" task":" tasks");'
+				 r'if(\2===0&&\3==="running")\7="Background tasks are running · Click to open the agent map"}'),
+				# The chat shows its spinner row while the session is visibly
+				# busy (busy, with the extension host responding, and not held
+				# by another panel) and no permission prompt or question waits.
+				# Show it also while the session is not busy but any of those
+				# tasks runs (with the host responding, and not held by another
+				# panel), with TASKS_LABEL's label in place of the random
+				# verbs: given a label, the row's usual spinner shows it
+				# instead of them (the engine surface's spinner, which takes no
+				# label, is not used then). A click on the row clicks the
+				# footer's Agents pill (shown while those tasks run), which
+				# opens the Agent map, where the tasks are listed. (Calling the
+				# function that the pill calls instead would take a pattern
+				# that spans the code from that function's definition to the
+				# row.) Found by the flag that says when to show the row.
+				(re.compile(r"let ([\w$]+)=(([\w$]+)\.visiblyBusy\.value)"
+				            r"(&&!\3\.permissionRequests\.value\.length&&!\3\.userDialogRequests\.value\.length,"
+				            r'[\w$]+=([\w$]+)\("div",\{className:[\w$]+\.spinnerRow,children:\5\("div",\{)'
+				            r"(className:[\w$]+\.spinner,children:\1&&\(\3\.engineSurface)"
+				            r"(\?[^;]*?:\5\([\w$]+,\{)(?=permissionMode:)"),
+				 r"let pccLabel=!\3.busy.value&&!\3.context.hostUnresponsive.value&&!\3.heldElsewhere.value"
+				 r"&&(" + TASKS_LABEL + r")(\3.pccTasks.value),\1=(\2||pccLabel)\4"
+				 r'...(pccLabel&&{"data-pcc-tasks":"",title:pccLabel+" · Click to open the agent map",'
+				 r'onClick:()=>document.querySelector("[data-agents-dot]")?.click()}),'
+				 r"\6&&!pccLabel\7label:pccLabel||void 0,"),
+			],
 		],
 		"extension.js": [
 			# Feed the webview override from editor.* instead of chat.editor.*
@@ -903,24 +913,36 @@ def write_atomically(path: Path, data: bytes) -> None:
 		os.close(directory)
 
 
-def apply_patterns(name: str, text: str, file_patterns: list[tuple[re.Pattern[str], Replacement]]) -> tuple[str, bool]:
-	"""Apply `file_patterns`, (compiled regex, re.subn replacement) pairs, in
-	order to `text`, the contents of the file called `name` (for messages).
-	Returns the result, and whether every pattern matched; prints a warning
-	for each that did not (the signal that an extension update changed the
-	code)."""
+def apply_patterns(name: str, text: str, file_patterns: list[Pattern | Group]) -> tuple[str, bool]:
+	"""Apply `file_patterns` in order to `text`, the contents of the file
+	called `name` (for messages). The patterns of a Group are applied in
+	order, each to what the ones before it made, and their result is kept
+	only if every one of them matched; otherwise the text stays as it was
+	before the group. Returns the result, and whether every pattern matched;
+	prints a warning for each pattern that did not (the signal that an
+	extension update changed the code), and for each group left out."""
 	ok = True
-	for regex, replacement in file_patterns:
-		text, count = regex.subn(replacement, text)
-		if count == 0:
-			print(f"  {name}: WARNING: no match for /{regex.pattern}/")
-			ok = False
+	for entry in file_patterns:
+		group = entry if isinstance(entry, list) else [entry]
+		result = text
+		group_ok = True
+		for regex, replacement in group:
+			result, count = regex.subn(replacement, result)
+			if count == 0:
+				print(f"  {name}: WARNING: no match for /{regex.pattern}/")
+				group_ok = False
+			else:
+				print(f"  {name}: {count}x /{regex.pattern}/")
+		if group_ok:
+			text = result
 		else:
-			print(f"  {name}: {count}x /{regex.pattern}/")
+			ok = False
+			if len(group) > 1:
+				print(f"  {name}: WARNING: left out all {len(group)} patterns of that pattern's group")
 	return text, ok
 
 
-def patch_file(path: Path, file_patterns: list[tuple[re.Pattern[str], Replacement]]) -> bool:
+def patch_file(path: Path, file_patterns: list[Pattern | Group]) -> bool:
 	"""Apply `file_patterns` to one file. The pristine original is kept at
 	<name>.orig-font and is re-read as the input on every run. Returns True
 	when every pattern matched."""
@@ -935,7 +957,7 @@ def patch_file(path: Path, file_patterns: list[tuple[re.Pattern[str], Replacemen
 	return ok
 
 
-def create_file(path: Path, source: Path, file_patterns: list[tuple[re.Pattern[str], Replacement]]) -> bool:
+def create_file(path: Path, source: Path, file_patterns: list[Pattern | Group]) -> bool:
 	"""Write the file `path`: the extension file `source` with
 	`file_patterns` applied. Returns True when every pattern matched."""
 	if not source.is_file():
