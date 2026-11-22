@@ -48,9 +48,11 @@ surfaces hardcode their own sizes besides. This script patches:
                        answered-AskUserQuestion review box, and the secondary
                        line under tool headers: "Answered · N questions",
                        "Added N lines", ...) back to the normal chat size;
-                       set tool names in tool call headers at weight 500
-                       instead of bold; set off prompts in the chat (in dark,
-                       non-high-contrast themes, with a colored background
+                       set tool names in tool call headers (and the other
+                       labels that share their class, such as "Advisor")
+                       at weight 500 instead of bold; set off prompts in
+                       the chat (in dark, non-high-contrast themes, with a
+                       colored background
                        and near-white text); put Inter Display ahead of the
                        chat font (and give text inputs the page's font, and
                        the input footer's fixed-width texts tabular
@@ -352,10 +354,12 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			(re.compile(r"(\.secondaryLine_[\w-]+\{[^}]*?)font-size:[^;}]+"),
 			 r"\1font-size:1em"),
 			# Tool names in tool call headers ("Bash", "Read", an MCP
-			# tool's "Server [tool]") are bold; give them a font-weight of
-			# 500 (TEXT_FONT's Medium face), so they stand out less. A
-			# font with no face between Regular and Bold draws 500 as
-			# Regular.
+			# tool's "Server [tool]"), and the few other labels that share
+			# their class (such as "Advisor"), are bold; give them a
+			# font-weight of 500, so they stand out less. TEXT_FONT draws
+			# 500 in its Medium face. A font with no Medium face draws 500
+			# in its Regular face, even if it has a SemiBold face (as
+			# Segoe UI has).
 			(re.compile(r"(\.toolNameText_[\w-]+\{[^}]*?font-weight:)[^;}]+"),
 			 r"\g<1>500"),
 			# Prompts in the chat share the input box's background; to make
@@ -382,8 +386,8 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			# text get a font-weight of 600 (as in the stylesheet of VS
 			# Code's markdown preview) instead of the browser's 700, which
 			# TEXT_FONT draws in its SemiBold face; a font with no face
-			# between Regular and Bold may draw 600 as either. Bold text in
-			# a heading (such as all of `## **Title**`) gets the heading's
+			# between Regular and Bold draws 600 in its Bold face. Bold text
+			# in a heading (such as all of `## **Title**`) gets the heading's
 			# weight, not the 900 of the browser's `bolder`. In dark,
 			# non-high-contrast themes, the text is #bbb (a little dimmer
 			# than the #ccc text of VS Code's Dark Modern), unless the reply
