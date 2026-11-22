@@ -110,8 +110,9 @@ surfaces hardcode their own sizes besides. This script patches:
                        running (for its tab icon) while any of them runs,
                        not just while an agent or a workflow does, and
                        show the input footer's Agents pill (which opens
-                       the Agent map) then too, with the number of those
-                       tasks that are not agents in its label; after a
+                       the Agent map) also while any of those tasks that
+                       are not agents runs, with their number in its
+                       label; after a
                        turn, while any of those tasks runs, keep the
                        chat's spinner row, labeled with their number and
                        descriptions, opening the Agent map when clicked
@@ -725,16 +726,14 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 				(re.compile(r'(busy\.value,[\w$]+=([\w$]+)\.backgroundTaskIds\.value\.size>0)'
 				            r'(?=,[\w$]+;if\([\w$]+\)[\w$]+="waiting_input")'),
 				 r"\1||\2.pccTasks.value.length>0"),
-				# The input footer shows its Agents pill (left of the model
-				# pill), which opens the Agent map, only while the session has
-				# agents in that map. Show it also while any of those tasks
-				# runs, and add the number of those that are not agents (the
-				# number that the pill adds to its label, see below) to the
-				# value made from the pill's label that the footer re-fits its
-				# items whenever it changes ...
-				(re.compile(r"(([\w$]+)=([\w$]+)\.agentMapAgents\.value,([\w$]+)=[\w$]+!==void 0&&)\2\.size>0,"
-				            r"([\w$]+)=\4\?([^:;]+):void 0;"),
-				 r'\1(\2.size>0||\3.pccTasks.value.length>0),\5=\4?\6+" "+' + non_agent_tasks(r"\3") + ":void 0;"),
+				# The input footer shows its Agents pill (just before the model
+				# pill), which opens the Agent map, only while that map has
+				# agents. Show it also while any of those tasks that are not
+				# agents runs (the pill counts working agents already). The
+				# footer re-fits its items by itself when the pill appears or
+				# goes, and when the text in it changes ...
+				(re.compile(r"(([\w$]+)=([\w$]+)\.agentMapAgents\.value,[\w$]+=[\w$]+!==void 0&&)\2\.size>0"),
+				 r"\1(\2.size>0||" + non_agent_tasks(r"\3") + ">0)"),
 				# ... pass the pill the number of those tasks that are not
 				# agents (which it counts already) ...
 				(re.compile(r"(function [\w$]+\(\{session:([\w$]+),onOpen:([\w$]+)\}\)\{"
