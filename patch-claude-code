@@ -742,22 +742,26 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			 r'if(pccTasks>0){\6=(\2>0?\6+" · ":"")+pccTasks+(pccTasks===1?" task":" tasks");'
 			 r'if(\2===0&&\3==="running")\7="Background tasks are running · Click to open the agent map"}'),
 			# The chat shows its spinner row while the session is visibly
-			# busy and no permission prompt or question waits. Show it also
-			# while the session is not busy but any of those tasks runs,
-			# with TASKS_LABEL's label in place of the random verbs: given
-			# a label, the row's usual spinner shows it instead of them
-			# (the engine surface's spinner, which takes no label, is not
-			# used then). A click on the row clicks the footer's Agents
-			# pill (shown while those tasks run), which opens the Agent
-			# map, where the tasks are listed; the row has no handle on the
-			# function that the pill calls. Found by the flag that says
-			# when to show the row.
+			# busy (busy, with the extension host responding, and not held
+			# by another panel) and no permission prompt or question waits.
+			# Show it also while the session is not busy but any of those
+			# tasks runs (with the host responding, and not held by another
+			# panel), with TASKS_LABEL's label in place of the random
+			# verbs: given a label, the row's usual spinner shows it
+			# instead of them (the engine surface's spinner, which takes no
+			# label, is not used then). A click on the row clicks the
+			# footer's Agents pill (shown while those tasks run), which
+			# opens the Agent map, where the tasks are listed. (Calling the
+			# function that the pill calls instead would take a pattern
+			# that spans the code from that function's definition to the
+			# row.) Found by the flag that says when to show the row.
 			(re.compile(r"let ([\w$]+)=(([\w$]+)\.visiblyBusy\.value)"
 			            r"(&&!\3\.permissionRequests\.value\.length&&!\3\.userDialogRequests\.value\.length,"
 			            r'[\w$]+=([\w$]+)\("div",\{className:[\w$]+\.spinnerRow,children:\5\("div",\{)'
 			            r"(className:[\w$]+\.spinner,children:\1&&\(\3\.engineSurface)"
 			            r"(\?[^;]*?:\5\([\w$]+,\{)(?=permissionMode:)"),
-			 r"let pccLabel=!\3.busy.value&&(" + TASKS_LABEL + r")(\3.pccTasks.value),\1=(\2||pccLabel)\4"
+			 r"let pccLabel=!\3.busy.value&&!\3.context.hostUnresponsive.value&&!\3.heldElsewhere.value"
+			 r"&&(" + TASKS_LABEL + r")(\3.pccTasks.value),\1=(\2||pccLabel)\4"
 			 r'...(pccLabel&&{"data-pcc-tasks":"",title:pccLabel+" · Click to open the agent map",'
 			 r'onClick:()=>document.querySelector("[data-agents-dot]")?.click()}),'
 			 r"\6&&!pccLabel\7label:pccLabel||void 0,"),
