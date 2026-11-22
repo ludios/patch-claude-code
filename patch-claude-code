@@ -87,10 +87,11 @@ surfaces hardcode their own sizes besides. This script patches:
                        input footer's Agents pill while it is the running
                        dot; fit the spinner row that the chat keeps for
                        background tasks (see index.js) on one line; draw
-                       commit links (see index.js) without an underline,
-                       like links that are children of paragraphs (unless
-                       VS Code's accessibility.underlineLinks setting is
-                       on)
+                       every link in markdown (commit links included), and
+                       inline code inside such a link, without an
+                       underline, as links that are children of paragraphs
+                       already are (unless VS Code's
+                       accessibility.underlineLinks setting is on)
   webview/index.js   - pass the family variable into the embedded Monaco
                        diff editors (they already take their size from the
                        size variable); hide the model picker's Default row,
@@ -585,17 +586,21 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			 "[data-pcc-tasks]>*>:first-child{flex-shrink:0}"
 			 "[data-pcc-tasks]>*>:nth-child(2){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
 			 "[data-pcc-tasks]:hover>*>:nth-child(2){text-decoration:underline}"),
-			# Draw commit links (see COMMIT_LINKS) like VS Code's webview
-			# host draws a link that is a child of a paragraph: with the
-			# host's --text-link-decoration (none unless VS Code's
-			# accessibility.underlineLinks setting is on), or with none
-			# where the host sets no such variable. Without this rule, a
-			# commit link that is not a child of a paragraph, such as one in
-			# inline code or in an item of a tight list, gets Chrome's
-			# default underline. (`scheme`, a JSON string with no
-			# backslash, is also a CSS string.)
-			(re.compile(r"\Z"),
-			 "a[href^=" + scheme + "]{text-decoration:var(--text-link-decoration,none)}"),
+			# Draw every link in markdown (commit links included; see
+			# COMMIT_LINKS) like VS Code's webview host draws a link that is
+			# a child of a paragraph: with the host's --text-link-decoration
+			# (none unless VS Code's accessibility.underlineLinks setting is
+			# on), or with none where the host sets no such variable. Give
+			# inline code in a link (as in [`file.py`](file.py)) that
+			# decoration too. Without this rule, a link that is not a
+			# child of a paragraph (such as one in an item of a tight list,
+			# in bold text or in inline code) gets Chrome's default
+			# underline, and inline code in a link gets the host's own
+			# underline. The markdown component's CSS-module hash is
+			# captured from its rule for inline code in a link, after which
+			# this rule is inserted.
+			(re.compile(r"(\.root_([\w-]+) a code\{[^}]*\})"),
+			 r"\1.root_\2 :is(a,a code){text-decoration:var(--text-link-decoration,none)}"),
 		],
 		"webview/index.js": [
 			# The two embedded Monaco diff editors (chat diffs and previews).
