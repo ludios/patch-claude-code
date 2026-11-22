@@ -42,6 +42,10 @@ This inspects what Claude asks a tool to do, not the bytes that leave the
 machine: a Bash command that reads a string from a file at run time, or an
 encoding not listed above (XOR, a made-up alphabet, a string split up within
 an argument, a base-N run that is an ordinary word, ...), gets through.
+So can a base10, base36, base58 or base62 number, or a compressed stream,
+under another code whose run takes in the characters next to it (base85's
+takes in most punctuation): that run decodes with garbled edges, which
+garble all of the number, and can keep the stream from inflating.
 
 On a match the hook answers "deny", and its reason, REFUSAL, tells Claude to
 go on without the string; nobody has to answer a permission prompt. Its

