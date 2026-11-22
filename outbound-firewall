@@ -73,10 +73,13 @@ for fixing this file should it break.
 		"hooks": [{"type": "command", "command": "/path/to/outbound-firewall", "onFailure": "block"}]
 	}]}
 
-Leave out too any MCP tool that only writes a file on this machine, at a
-path it takes (such as a screenshot tool's "saveTo"): the hook would check
-the file already at that path as though it were being uploaded, and ask
-about a screenshot, whose pixels inflate past MAX_INFLATE.
+Also leave out any MCP tool whose only effect is to write a file on this
+machine, at an absolute path given as one of its arguments (such as a
+screenshot tool's "saveTo"), by adding its full name, mcp__<server>__<tool>,
+to the names in the matcher's parentheses. Otherwise the hook checks the
+file already at that path as though it were being uploaded: it asks about
+most screenshots (as one is over MAX_TEXT bytes, or its pixels inflate past
+MAX_INFLATE), and denies the call if the old file holds a blocked string.
 
 Usage: outbound-firewall [CONFIG]   (reads the hook's JSON input on stdin)
 """
