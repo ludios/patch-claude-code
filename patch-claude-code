@@ -48,7 +48,8 @@ surfaces hardcode their own sizes besides. This script patches:
                        answered-AskUserQuestion review box, and the secondary
                        line under tool headers: "Answered · N questions",
                        "Added N lines", ...) back to the normal chat size;
-                       set off prompts in the chat (in dark,
+                       set tool names in tool call headers at weight 500
+                       instead of bold; set off prompts in the chat (in dark,
                        non-high-contrast themes, with a colored background
                        and near-white text); put Inter Display ahead of the
                        chat font (and give text inputs the page's font, and
@@ -343,6 +344,13 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			# ...) is shrunk to .85em; give it the normal chat size.
 			(re.compile(r"(\.secondaryLine_[\w-]+\{[^}]*?)font-size:[^;}]+"),
 			 r"\1font-size:1em"),
+			# Tool names in tool call headers ("Bash", "Read", an MCP
+			# tool's "Server [tool]") are bold; give them a font-weight of
+			# 500 (TEXT_FONT's Medium face), so they stand out less. A
+			# font with no face between Regular and Bold draws 500 as
+			# Regular.
+			(re.compile(r"(\.toolNameText_[\w-]+\{[^}]*?font-weight:)[^;}]+"),
+			 r"\g<1>500"),
 			# Prompts in the chat share the input box's background; to make
 			# them easier to spot among replies, give them a colored
 			# background with near-white text in dark themes (VS Code marks
