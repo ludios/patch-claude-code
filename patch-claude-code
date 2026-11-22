@@ -12,7 +12,8 @@ easier reading, so its markdown tables look less cramped, so its scrollbars
 look like VS Code's own, so a Bash (or PowerShell) tool call's command wraps
 instead of being cut off at the edge, so a tool call's clipped plain-text
 input or output says how many lines it hides instead of fading out, so
-copying text from the chat gives markdown, so a click on a commit ID in the
+copying text from the chat gives markdown, so the text of a pending
+AskUserQuestion prompt can be selected, so a click on a commit ID in the
 chat shows that commit, so a chat's editor tab shows a spinning logo while
 its session runs (background tasks included), so its input footer counts the
 running background tasks that are not agents, so the chat keeps a spinner
@@ -91,7 +92,9 @@ surfaces hardcode their own sizes besides. This script patches:
                        inline code inside such a link, without an
                        underline, as links that are children of paragraphs
                        already are (unless VS Code's
-                       accessibility.underlineLinks setting is on)
+                       accessibility.underlineLinks setting is on);
+                       make the text of a pending AskUserQuestion prompt
+                       selectable
   webview/index.js   - pass the family variable into the embedded Monaco
                        diff editors (they already take their size from the
                        size variable); hide the model picker's Default row,
@@ -116,8 +119,11 @@ surfaces hardcode their own sizes besides. This script patches:
                        addresses through react-markdown's URL sanitizing,
                        and have a click on such a link ask the extension
                        to open its address, and its "Copy Link" copy the
-                       ID; keep each session's background tasks that the
-                       CLI counts as activity, and report a session as
+                       ID; have an option of an AskUserQuestion prompt
+                       ignore a click that leaves some of its text
+                       selected (as after a drag); keep each session's
+                       background tasks that the CLI counts as activity,
+                       and report a session as
                        running (for its tab icon) while any of them runs,
                        not just while an agent or a workflow does, and
                        show the input footer's Agents pill (which opens
@@ -404,6 +410,16 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			(re.compile(r"(\.reviewBody_([\w-]+)\{[^}]*\})"),
 			 r"\1.reviewBody_\2 :is(.questionTextLarge_\2,.optionLabel_\2,"
 			 r".optionDescription_\2){font-size:1em}"),
+			# The webview's root sets user-select:none, and only some parts
+			# under it (such as the chat's messages) set it back to text, so
+			# no text of a pending AskUserQuestion prompt (its question
+			# tabs, question, options and option preview) could be
+			# selected. Make all of it selectable. The CSS-module hash is
+			# captured from the rule for the prompt's navigation bar (the
+			# one right after another rule, not those for it inside a
+			# .withPreview_ prompt).
+			(re.compile(r"((?<=\})\.navigationBar_([\w-]+)\{[^}]*\})"),
+			 r"\1:is(.navigationBar_\2,.questionsContainer_\2,.previewPane_\2){user-select:text}"),
 			# The secondary line under tool headers ("Answered · N
 			# questions", "Added N lines", tool descriptions, "Edit failed",
 			# ...) is shrunk to .85em; give it the normal chat size.
@@ -748,6 +764,20 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			(re.compile(r'(function [\w$]+\(\)\{navigator\.clipboard\.writeText\()([\w$]+)'
 			            r'(?=\),[\w$]+\(\)\}return [\w$]+\("div",\{ref:[\w$]+,className:[\w$]+\.contextMenu,[^;]*children:"Copy Link")'),
 			 r"\1\2.startsWith(" + scheme + r")?\2.slice(" + str(len(COMMIT_SCHEME)) + r"):\2"),
+			# The text of an AskUserQuestion prompt's options can be
+			# selected (see index.css), but a drag that selects some of an
+			# option's text ends in a click on the option, which picks it
+			# (and, in a single-choice question before the last, moves on to
+			# the next question). Have a click pick the option only if, once
+			# Chrome has handled the click (in a later task: a click on
+			# selected text makes the selection empty only after the click
+			# event), no selection that is not empty takes in some of the
+			# option. The option component is found by its role; it has no
+			# click handler when it is read-only.
+			(re.compile(r'(\?"checkbox":"radio",[^{}]*?,onClick:)([\w$]+)(?=[,}])'),
+			 r"\1\2&&((pccEvent)=>{let pccOption=pccEvent.currentTarget;setTimeout(()=>{"
+			 r"let pccSelection=getSelection();"
+			 r"if(pccSelection.isCollapsed||!pccSelection.containsNode(pccOption,!0))\2(pccEvent)})})"),
 			# The background-task indicators, all or none (each pattern after
 			# the first uses the pccTasks field that the first adds).
 			[
