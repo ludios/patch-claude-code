@@ -79,11 +79,11 @@ surfaces hardcode their own sizes besides. This script patches:
                        previews) in the color and at the x-height of the
                        text around it, with no background or padding; draw
                        markdown tables with slightly brighter lines,
-                       rounded corners and
-                       .5em of space at each side of a cell's text, with
-                       each cell's text at the top of its row, and
-                       in replies, 1em of space above and below each
-                       table, like between paragraphs; draw VS Code's
+                       rounded corners, .5em of padding at the left and
+                       right of each cell, and the first lines of a row's
+                       cells on one baseline; in replies, also put 1em of
+                       space above and below each table, like between
+                       paragraphs; draw VS Code's
                        square scrollbars instead of Chrome's, with vertical ones
                        14px wide (the editor's default), and keep the fade
                        at the bottom of the chat off its scrollbar; wrap
@@ -592,24 +592,28 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			# the table's corners by the webview's medium corner radius
 			# (6px; the input box's is 8px), and pad each cell by .5em at
 			# the left and right, about the space that the line height
-			# leaves above and below its text. Align each cell's content to
-			# the top of its row (the default is the middle), so that the
-			# first lines of a row's cells line up when one cell wraps to
-			# more lines than the others. Rounded corners need
+			# leaves above and below its text. Align the cells of a row by
+			# the baseline of their first lines (the browser's own
+			# stylesheet instead centers each cell's content vertically in
+			# its row), so that the first lines of a row line up even when
+			# one cell wraps to more lines than the others, or when one
+			# cell's first line is taller than the other cells' first
+			# lines (as with tall inline math). Rounded corners need
 			# separate borders, not collapsed ones: the table draws the
-			# outer lines, and each cell draws its top and left line,
-			# unless the cell is in the table's first row or first column.
-			# The table's CSS-module hash is captured from the stock cell
-			# rule, after which these rules are inserted, so that they win.
-			# In replies, a table also gets the 1em of space that separates
-			# adjacent paragraphs there, above it and below it (except at
-			# the start and end of the element it is in).
+			# outer lines, and each cell draws its top line (unless it is
+			# in the table's first row) and its left line (unless it is in
+			# the table's first column). The table's CSS-module hash is
+			# captured from the stock cell rule, after which these rules
+			# are inserted, so that they win. In replies, a table also gets
+			# the 1em of space that separates adjacent paragraphs there,
+			# above it and below it (except at the start and end of the
+			# element it is in).
 			(re.compile(r"(\.root_([\w-]+) th,\.root_\2 td\{[^}]*\})"),
 			 r"\1"
 			 r".root_\2 table{border-collapse:separate;border-spacing:0;border-color:" + TABLE_LINE
 			 + ";border-radius:var(--corner-radius-medium)}"
 			 r".root_\2 :is(th,td){border-width:1px 0 0 1px;border-color:" + TABLE_LINE
-			 + ";padding:2px .5em;vertical-align:top}"
+			 + ";padding:2px .5em;vertical-align:baseline}"
 			 r".root_\2 tr>:first-child{border-left-width:0}"
 			 r".root_\2 table>:first-child>tr:first-child>*{border-top-width:0}"
 			 + REPLY_TEXT + " table:not(:first-child){margin-top:1em}"
