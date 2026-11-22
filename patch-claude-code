@@ -99,7 +99,9 @@ surfaces hardcode their own sizes besides. This script patches:
                        underline, as links that are children of paragraphs
                        already are (unless VS Code's
                        accessibility.underlineLinks setting is on);
-                       never wrap the ID of a commit link (see index.js);
+                       break the ID of a commit link (see index.js)
+                       across lines only where the ID alone is wider than
+                       the line, so that a table keeps the IDs whole;
                        make the question and option preview of a pending
                        AskUserQuestion prompt selectable, and its options
                        and question tabs (once index.js marks them);
@@ -691,16 +693,20 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			# code. Inline code in a link (as in [`file.py`](file.py)) gets
 			# no decoration of its own, so it shows only the link's, not
 			# also the underline that VS Code's webview hosts after 1.144
-			# give it. Never wrap a commit link's ID: the stock rule for
-			# inline code (word-break:break-word) lets inline code break
-			# between any two characters, so a table would squeeze a column
-			# of commit IDs to a few characters per line. The markdown
+			# give it. Break the ID of a commit link (a link with
+			# COMMIT_SCHEME in inline code, as COMMIT_LINKS makes it) across
+			# lines only where the ID alone is wider than the line. The stock
+			# rule for inline code (word-break:break-word) lets a table
+			# squeeze a column to one character of inline code per line;
+			# overflow-wrap:break-word does not make a column narrower, and
+			# breaks the ID only where it would otherwise be cut off at the
+			# right edge of the markdown (overflow-x:hidden). The markdown
 			# component's CSS-module hash is captured from its rule for
 			# inline code in a link, after which these rules are inserted.
 			(re.compile(r"(\.root_([\w-]+) a code\{[^}]*\})"),
 			 r"\1.root_\2 a{text-decoration:var(--text-link-decoration,none)}"
 			 r".root_\2 a code{text-decoration:none}"
-			 r'.root_\2 a[href^="' + COMMIT_SCHEME + r'"]{white-space:nowrap}'),
+			 r".root_\2 code>a[href^=" + scheme + r"]{word-break:normal;overflow-wrap:break-word}"),
 		],
 		"webview/index.js": [
 			# The two embedded Monaco diff editors (chat diffs and previews).
