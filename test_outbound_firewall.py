@@ -316,7 +316,9 @@ def test_decodes_through_a_layer_of_mostly_punctuation() -> None:
 	assert found(f"echo {TEXT_ENCODERS['base16'](text)}")
 
 
-@settings(max_examples=300, deadline=None)
+# The same examples every run (and no database of past failures to replay), so
+# that it fails because of a change, not a lucky draw.
+@settings(max_examples=300, deadline=None, derandomize=True)
 @given(
 	spelling = st.sampled_from(SPELLINGS),
 	before   = st.text(st.characters(min_codepoint=0x20, max_codepoint=0x7e), max_size=6),
