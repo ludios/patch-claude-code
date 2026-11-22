@@ -18,9 +18,9 @@ selected, so a click on a commit ID in the chat shows that commit, so a
 chat's editor tab shows a spinning logo while its session runs (background
 tasks included), so its input footer counts the running background tasks
 that are not agents, so the chat keeps a spinner after a turn while
-background tasks run, naming them, so its input box is wide enough for all
-of its footer to fit on one row, and, on NixOS, so its native binary can
-run at all.
+background tasks run, naming them, so its input box can grow wide enough
+(where the panel has the room) for all of its footer to fit on one row,
+and, on NixOS, so its native binary can run at all.
 
 VS Code injects the real editor font into every webview as the
 --vscode-editor-font-family / --vscode-editor-font-size (px) CSS variables,
@@ -98,9 +98,10 @@ surfaces hardcode their own sizes besides. This script patches:
                        make the question and option preview of a pending
                        AskUserQuestion prompt selectable, and its options
                        and question tabs (once index.js marks them);
-                       widen the input box (and the cards and permission
-                       prompts above it) from at most 680px to at most 56
-                       times the chat font size
+                       raise the maximum width of the input box (and of
+                       the permission prompts and the first-week questions
+                       card) from 680px to 56 times the chat font size, or
+                       680px if that is wider
   webview/index.js   - pass the family variable into the embedded Monaco
                        diff editors (they already take their size from the
                        size variable); hide the model picker's Default row,
@@ -222,6 +223,11 @@ PARENT_X_HEIGHT = "font-size:2ex;font-size-adjust:.5"
 # The color of the lines of markdown tables: the input box's border color
 # with 10% of the theme's text color mixed in, so a little more visible.
 TABLE_LINE = "color-mix(in srgb,var(--app-input-border),var(--app-primary-foreground) 10%)"
+# The input box's stock maximum width, and the one that replaces it: 56
+# times the chat font size (840px at 15px), or the stock width if that is
+# wider (as with a chat font under about 12.1px).
+STOCK_INPUT_WIDTH = "680px"
+INPUT_WIDTH       = "max(" + STOCK_INPUT_WIDTH + ",calc(56*var(--vscode-chat-font-size,13px)))"
 # A CSS condition for browsers that draw scrollbars by ::-webkit-scrollbar
 # rules, like Chrome (and so VS Code) does.
 WEBKIT_SCROLLBARS = "@supports selector(::-webkit-scrollbar)"
@@ -387,6 +393,17 @@ Pattern = tuple[re.Pattern[str], Replacement]
 Group = list[Pattern]
 
 
+def widen_to_input_width(class_name: str) -> Pattern:
+	"""Return a pattern that replaces STOCK_INPUT_WIDTH with INPUT_WIDTH as
+	the max-width of the CSS rule for just the CSS-module class
+	`class_name` (such as "inputWrapper", for the class
+	"inputWrapper_<hash>")."""
+	assert re.fullmatch(r"\w+", class_name), class_name
+	return (re.compile(r"((?<=\})\." + class_name + r"_[\w-]+\{[^}]*?(?<![\w-])max-width:)"
+	                   + re.escape(STOCK_INPUT_WIDTH) + r"(?=[;}])"),
+	        r"\1" + INPUT_WIDTH)
+
+
 def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 	"""Return {relative file path: [pattern or group of patterns]} for one
 	extension directory. `mythos` says whether the model lineup includes
@@ -417,16 +434,21 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			# footer re-fitting. Give every fixed-width text tabular digits.
 			(re.compile(r"(span\.indicator_[\w-]+ span\[data-footer-fixed-width\]\{[^}]*\})"),
 			 r"\1[data-footer-fixed-width]{font-variant-numeric:tabular-nums}"),
-			# The input box (with the cards and permission prompts above
-			# it) is at most 680px wide. There, with the tokens-in-context
-			# count and the Agents pill's task count (see index.js) at a
-			# 15px chat font, the input footer shrank the Agents pill to
-			# its icon and moved the model pill down to a row of its own.
-			# Widen all four 680px rules to 56 times the chat font size
-			# (840px at 15px, 728px at the default 13px), because the
-			# footer's texts scale with that size.
-			(re.compile(r"(?<![\w-])max-width:680px(?=[;}])"),
-			 "max-width:calc(56*var(--vscode-chat-font-size,13px))"),
+			# The input box was at most STOCK_INPUT_WIDTH wide. At that
+			# width, with the tokens-in-context count and the Agents pill's
+			# task count (see index.js) and a 15px chat font, the input
+			# footer replaced the Agents pill's label with an icon and
+			# moved the model pill down to a row of its own. Allow the box
+			# INPUT_WIDTH, which grows with the chat font size, as the
+			# footer's texts do. The box is capped both by its absolutely
+			# positioned container and by its own wrapper inside that, so
+			# the two rules are widened together or not at all. The
+			# permission prompts, which replace the box inside the
+			# same container, and the first-week questions card, which is
+			# right above the box in a new chat, get the same width.
+			[widen_to_input_width("inputContainer"), widen_to_input_width("inputWrapper")],
+			widen_to_input_width("permissionsContainer"),
+			widen_to_input_width("card"),
 			# Monaco widget font (hovers, suggest details).
 			(re.compile(r"--monaco-monospace-font:"),
 			 "--monaco-monospace-font:" + EDITOR_FAMILY + ","),
