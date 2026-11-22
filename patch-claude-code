@@ -131,7 +131,9 @@ surfaces hardcode their own sizes besides. This script patches:
                        AskUserQuestion prompt for the CSS to make
                        selectable, and have each such option or tab
                        ignore a click that ends a drag that selected some
-                       of that option's or tab's text; keep each session's
+                       of that option's or tab's text, and while a mouse
+                       button is held, have pointing at an option not
+                       switch the option preview to it; keep each session's
                        background tasks that the CLI counts as activity,
                        and report a session as
                        running (for its tab icon) while any of them runs,
@@ -811,12 +813,17 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			# selects some of an option's text not picking the option (which,
 			# in a single-choice question before the last, also moves on to
 			# the next question): give the option component's click handler
-			# to SELECTABLE_CLICK. The component is found by its class (an
-			# `option` CSS-module class) and its checkbox-or-radio role; it
-			# has no click handler when it is read-only.
+			# to SELECTABLE_CLICK. And while a mouse button is held (as in a
+			# drag that selects text in the option preview and passes over an
+			# option), have pointing at an option not switch the preview to
+			# that option's, which would replace the text being selected. The
+			# component is found by its class (an `option` CSS-module class)
+			# and its checkbox-or-radio role; it has no click handler when it
+			# is read-only, and no pointing handler without previews.
 			(re.compile(r'(\{className:`\$\{[\w$]+\.option\} [^`]*`,[^{}]*?\?"checkbox":"radio",[^{}]*?,)'
-			            r'onClick:([\w$]+)(?=[,}])'),
-			 r"\1...(" + SELECTABLE_CLICK + r")(\2)"),
+			            r'onClick:([\w$]+),onMouseEnter:([\w$]+)(?=[,}])'),
+			 r"\1...(" + SELECTABLE_CLICK + r")(\2),"
+			 r"onMouseEnter:\3&&((event)=>event.buttons===0&&\3(event))"),
 			# The same for the prompt's question tabs (buttons), whose clicks
 			# switch to their questions (and unfold a folded prompt). Found
 			# by their `navTab` CSS-module class.
