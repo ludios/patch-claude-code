@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 """Patch the Claude Code VS Code extension so every monospace surface in its
 chat follows the user's editor.fontFamily setting, and every such surface
-except the inline code in assistant replies and the text after the tool name
-in tool call headers follows editor.fontSize too, so its model picker offers
-a fixed lineup of models, so its input footer shows how many tokens are in
-context, so a prompt stands out, is shown in full, and scrolls with the rest
-of the chat instead of staying pinned to its top, so its chat-font text is
-set in Inter Display (where that is installed), so the text of assistant
-replies is restyled for easier reading, so its markdown tables look less
-cramped, so its scrollbars look like VS Code's own, so a Bash (or
-PowerShell) tool call's command wraps instead of being cut off at the edge,
-so a tool call's clipped plain-text input or output says how many lines it
-hides instead of fading out, so copying text from the chat gives markdown,
-so a click on a commit ID in the chat shows that commit, so a chat's editor
-tab shows a spinning logo while its session runs (background tasks
-included), so its input footer counts the running background tasks that are
-not agents, so the chat keeps a spinner after a turn while background tasks
-run, naming them, and, on NixOS, so its native binary can run at all.
+except the inline code in assistant replies and the monospace text after the
+tool name in tool call headers (and elsewhere with its CSS class) follows
+editor.fontSize too, so its model picker offers a fixed lineup of models, so
+its input footer shows how many tokens are in context, so a prompt stands
+out, is shown in full, and scrolls with the rest of the chat instead of
+staying pinned to its top, so its chat-font text is set in Inter Display
+(where that is installed), so the text of assistant replies is restyled for
+easier reading, so its markdown tables look less cramped, so its scrollbars
+look like VS Code's own, so a Bash (or PowerShell) tool call's command wraps
+instead of being cut off at the edge, so a tool call's clipped plain-text
+input or output says how many lines it hides instead of fading out, so
+copying text from the chat gives markdown, so a click on a commit ID in the
+chat shows that commit, so a chat's editor tab shows a spinning logo while
+its session runs (background tasks included), so its input footer counts the
+running background tasks that are not agents, so the chat keeps a spinner
+after a turn while background tasks run, naming them, and, on NixOS, so its
+native binary can run at all.
 
 VS Code injects the real editor font into every webview as the
 --vscode-editor-font-family / --vscode-editor-font-size (px) CSS variables,
@@ -43,21 +44,21 @@ surfaces hardcode their own sizes besides. This script patches:
                        (under 14px, a fraction of an em, a percentage,
                        inherit, or the chat font size, possibly minus some
                        px) var(--vscode-editor-font-size) instead (tool
-                       IN/OUT rows, header filenames, markdown inline code
-                       outside replies, slash-command echoes, permission
-                       requests, pills, git summaries, changed-file lists,
-                       MCP dialogs, ...);
-                       also bring shrunken chat-font text (the
-                       answered-AskUserQuestion review box, the secondary
-                       line under tool headers: "Answered · N questions",
-                       "Added N lines", ..., and the "[Show Tab]" link in
-                       the tool headers of Claude in Chrome) back to the
-                       normal chat size;
+                       IN/OUT rows, markdown inline code outside replies,
+                       slash-command echoes, permission requests, pills,
+                       git summaries, changed-file lists, MCP dialogs,
+                       ...);
+                       also bring shrunken chat-font text back to the
+                       normal chat size: the answered-AskUserQuestion
+                       review box; the secondary line under tool headers
+                       ("Answered · N questions", "Added N lines", ...);
+                       and the "[Show Tab]" link in the tool headers of
+                       Claude in Chrome;
                        set tool names in tool call headers (and the other
                        labels that share their class, such as "Advisor")
-                       at weight 500 instead of bold, and the text after
-                       them (such as a file link) at the x-height of the
-                       text around it; set off prompts in
+                       at weight 500 instead of bold, and the monospace
+                       text after them (such as a file link) at the
+                       x-height of the text around it; set off prompts in
                        the chat (in dark, non-high-contrast themes, with a
                        colored background
                        and near-white text); put Inter Display ahead of the
