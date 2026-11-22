@@ -351,7 +351,7 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			# The secondary line under tool headers ("Answered · N
 			# questions", "Added N lines", tool descriptions, "Edit failed",
 			# ...) is shrunk to .85em; give it the normal chat size.
-			(re.compile(r"(\.secondaryLine_[\w-]+\{[^}]*?)font-size:[^;}]+"),
+			(re.compile(r"(\.secondaryLine_[\w-]+\{[^}]*?)" + FONT_SIZE + r"[^;}]+"),
 			 r"\1font-size:1em"),
 			# Tool names in tool call headers ("Bash", "Read", an MCP
 			# tool's "Server [tool]"), and the few other labels that share
@@ -360,7 +360,7 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			# 500 in its Medium face. A font with no Medium face draws 500
 			# in its Regular face, even if it has a SemiBold face (as
 			# Segoe UI has).
-			(re.compile(r"(\.toolNameText_[\w-]+\{[^}]*?font-weight:)[^;}]+"),
+			(re.compile(r"(\.toolNameText_[\w-]+\{[^}]*?(?<![\w-])font-weight:)[^;}]+"),
 			 r"\g<1>500"),
 			# Prompts in the chat share the input box's background; to make
 			# them easier to spot among replies, give them a colored
