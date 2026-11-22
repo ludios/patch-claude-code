@@ -513,10 +513,13 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			 + "{content:attr(data-pcc-more);display:block;grid-column:2;padding:0 4px 4px;color:var(--app-secondary-foreground)}"),
 			# Pulse the dot of the input footer's Agents pill while it is
 			# the running dot (which index.js also makes it while background
-			# tasks run).
+			# tasks run), unless the system or VS Code (by the body class
+			# that its webviews get from its reduce-motion setting) asks for
+			# reduced motion.
 			(re.compile(r"\Z"),
 			 "@media (prefers-reduced-motion:no-preference)"
-			 "{[data-agents-dot=running]>[data-status-dot=running]{animation:pccPulse 1.2s ease-in-out infinite}}"
+			 "{body:not(.vscode-reduce-motion) [data-agents-dot=running]>[data-status-dot=running]"
+			 "{animation:pccPulse 1.2s ease-in-out infinite}}"
 			 "@keyframes pccPulse{50%{opacity:.25}}"),
 			# Fit the spinner row that the chat keeps while background tasks
 			# run (see index.js, which marks it data-pcc-tasks) on one line,
