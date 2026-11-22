@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
 """Patch the Claude Code VS Code extension so every monospace surface in its
 chat follows the user's editor.fontFamily setting, and every such surface
-except the inline code in assistant replies follows editor.fontSize too, so
-its model picker offers a fixed lineup of models, so its input footer shows
-how many tokens are in context, so a prompt stands out, is shown in full,
-and scrolls with the rest of the chat instead of staying pinned to its top,
-so its chat-font text is set in Inter Display (where that is installed), so
-the text of assistant replies is restyled for easier reading, so its
-markdown tables look less cramped, so its scrollbars look like VS Code's
-own, so a Bash (or PowerShell) tool call's command wraps instead of being
-cut off at the edge, so a tool call's clipped plain-text input or output
-says how many lines it hides instead of fading out, so copying text from
-the chat gives markdown, so a click on a commit ID in the chat shows that
-commit, so a chat's editor tab shows a spinning logo while its session
-runs (background tasks included), so its input footer counts the running
-background tasks that are not agents, so the chat keeps a spinner after a
-turn while background tasks run, naming them, and, on NixOS, so its native
-binary can run at all.
+except the inline code in assistant replies and the text after the tool name
+in tool call headers follows editor.fontSize too, so its model picker offers
+a fixed lineup of models, so its input footer shows how many tokens are in
+context, so a prompt stands out, is shown in full, and scrolls with the rest
+of the chat instead of staying pinned to its top, so its chat-font text is
+set in Inter Display (where that is installed), so the text of assistant
+replies is restyled for easier reading, so its markdown tables look less
+cramped, so its scrollbars look like VS Code's own, so a Bash (or
+PowerShell) tool call's command wraps instead of being cut off at the edge,
+so a tool call's clipped plain-text input or output says how many lines it
+hides instead of fading out, so copying text from the chat gives markdown,
+so a click on a commit ID in the chat shows that commit, so a chat's editor
+tab shows a spinning logo while its session runs (background tasks
+included), so its input footer counts the running background tasks that are
+not agents, so the chat keeps a spinner after a turn while background tasks
+run, naming them, and, on NixOS, so its native binary can run at all.
 
 VS Code injects the real editor font into every webview as the
 --vscode-editor-font-family / --vscode-editor-font-size (px) CSS variables,
@@ -53,7 +53,9 @@ surfaces hardcode their own sizes besides. This script patches:
                        "Added N lines", ...) back to the normal chat size;
                        set tool names in tool call headers (and the other
                        labels that share their class, such as "Advisor")
-                       at weight 500 instead of bold; set off prompts in
+                       at weight 500 instead of bold, and the text after
+                       them (such as a file link) at the x-height of the
+                       text around it; set off prompts in
                        the chat (in dark, non-high-contrast themes, with a
                        colored background
                        and near-white text); put Inter Display ahead of the
@@ -187,6 +189,14 @@ TEXT_FONT = 'InterDisplay,"Inter Display"'
 # text in them.
 REPLY      = "[data-testid=assistant-message]"
 REPLY_TEXT = REPLY + r">.root_\2"
+# CSS declarations that set an inline element's text (such as text in the
+# editor font) at the x-height of the text around it, whatever the fonts of
+# the two: in a font-size, ex is the x-height of the parent's font, and
+# font-size-adjust:.5 scales the element's font so that its x-height is
+# half of the element's font-size. The line height is 1 because with a
+# larger one, some editor fonts made lines with such an element up to 2px
+# taller than the others.
+PARENT_X_HEIGHT = "font-size:2ex;font-size-adjust:.5;line-height:1"
 # The color of the lines of markdown tables: the input box's border color
 # with 10% of the theme's text color mixed in, so a little more visible.
 TABLE_LINE = "color-mix(in srgb,var(--app-input-border),var(--app-primary-foreground) 10%)"
@@ -395,6 +405,14 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			# ...) is shrunk to .85em; give it the normal chat size.
 			(re.compile(r"(\.secondaryLine_[\w-]+\{[^}]*?)" + FONT_SIZE + r"[^;}]+"),
 			 r"\1font-size:1em"),
+			# The text after the tool name in tool call headers (a file
+			# path or a URL, often as a link, a search pattern, a task ID,
+			# ...) is in the editor font at the editor size (made so by the
+			# sweep above), so with a chat font size larger than the editor
+			# font's, it looked smaller than the tool name. Set it at the
+			# x-height of the text around it.
+			(re.compile(r"(\.toolNameTextSecondary_[\w-]+\{[^}]*?)" + FONT_SIZE + r"[^;}]+"),
+			 r"\1" + PARENT_X_HEIGHT),
 			# Tool names in tool call headers ("Bash", "Read", an MCP
 			# tool's "Server [tool]"), and the few other labels that share
 			# their class (such as "Advisor"), are bold; give them a
@@ -440,12 +458,8 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			# also drew the code a device pixel below the text's baseline),
 			# the color of the text around it instead of the theme's color
 			# for preformatted text (yellow in some dark themes), and the
-			# x-height of the text around it instead of the editor's font
-			# size: its font-size is 2ex (in a font-size, ex is the x-height
-			# of the parent's font), and font-size-adjust:.5 scales its font
-			# so that the x-height is half of that font-size. Its line height
-			# is 1, because at the text's 1.6, some editor fonts made lines
-			# with inline code up to 2px taller than the others.
+			# x-height of the text around it (PARENT_X_HEIGHT) instead of the
+			# editor's font size.
 			(re.compile(r"(\.root_([\w-]+) code\{[^}]*var\(--app-inline-code-foreground\)[^}]*\})"),
 			 r"\1"
 			 + REPLY_TEXT + "{line-height:1.6}"
@@ -455,7 +469,7 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			 + REPLY_TEXT + " :is(h1,h2,h3,h4,h5,h6) strong{font-weight:inherit}"
 			 + ".vscode-dark " + REPLY + r":not([class*=failedReply_])>.root_\2{color:#bbb}"
 			 + REPLY_TEXT + " code:not([class],pre *){color:inherit;background:none;padding:0"
-			 + ";font-size:2ex;font-size-adjust:.5;line-height:1}"),
+			 + ";" + PARENT_X_HEIGHT + "}"),
 			# Markdown tables (in replies and elsewhere) have square
 			# corners, lines in the input box's border color, and 2px of
 			# padding in each cell. Draw their lines in TABLE_LINE, round
