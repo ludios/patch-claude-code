@@ -48,9 +48,11 @@ surfaces hardcode their own sizes besides. This script patches:
                        requests, pills, git summaries, changed-file lists,
                        MCP dialogs, ...);
                        also bring shrunken chat-font text (the
-                       answered-AskUserQuestion review box, and the secondary
+                       answered-AskUserQuestion review box, the secondary
                        line under tool headers: "Answered · N questions",
-                       "Added N lines", ...) back to the normal chat size;
+                       "Added N lines", ..., and the "[Show Tab]" link in
+                       the tool headers of Claude in Chrome) back to the
+                       normal chat size;
                        set tool names in tool call headers (and the other
                        labels that share their class, such as "Advisor")
                        at weight 500 instead of bold, and the text after
@@ -413,6 +415,10 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			# x-height of the text around it.
 			(re.compile(r"(\.toolNameTextSecondary_[\w-]+\{[^}]*?)" + FONT_SIZE + r"[^;}]+"),
 			 r"\1" + PARENT_X_HEIGHT),
+			# The "[Show Tab]" link in the headers of Claude in Chrome's
+			# tool calls is shrunk to .8em; give it the normal chat size.
+			(re.compile(r"(\.tabLink_[\w-]+\{[^}]*?)" + FONT_SIZE + r"[^;}]+"),
+			 r"\1font-size:1em"),
 			# Tool names in tool call headers ("Bash", "Read", an MCP
 			# tool's "Server [tool]"), and the few other labels that share
 			# their class (such as "Advisor"), are bold; give them a
