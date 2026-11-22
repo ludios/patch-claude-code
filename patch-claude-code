@@ -715,16 +715,16 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 				(re.compile(r"(?<=clearBackgroundTasks\(\)\{)"),
 				 "if(this.pccTasks.value.length>0)this.pccTasks.value=[];"),
 				# Report a session as running (which gives its tab RUNNING_ICON,
-				# see extension.js) while any of those tasks runs, instead of
-				# only while an agent or a workflow does ...
-				(re.compile(r'(busy\.value,[\w$]+=)([\w$]+)\.backgroundTaskIds\.value\.size>0'
+				# see extension.js, unless a permission prompt or a question
+				# waits) also while any of those tasks runs, not only while it
+				# is busy or an agent or a workflow runs. Whether a chat that
+				# was hidden when its turn ended gets marked as done still
+				# depends only on the turn and on agents and workflows, so a
+				# task that never ends (a dev server, say) cannot keep the mark
+				# away; the tab shows the mark once the session is not running.
+				(re.compile(r'(busy\.value,[\w$]+=([\w$]+)\.backgroundTaskIds\.value\.size>0)'
 				            r'(?=,[\w$]+;if\([\w$]+\)[\w$]+="waiting_input")'),
-				 r"\1\2.pccTasks.value.length>0"),
-				# ... and count it as busy for the same time, so that a chat
-				# hidden while it ran is marked as done only when they have
-				# ended too.
-				(re.compile(r"\(([\w$]+)\?\.backgroundTaskIds\.value\.size\?\?0\)>0"),
-				 r"(\1?.pccTasks.value.length??0)>0"),
+				 r"\1||\2.pccTasks.value.length>0"),
 				# The input footer shows its Agents pill (left of the model
 				# pill), which opens the Agent map, only while the session has
 				# agents in that map. Show it also while any of those tasks
