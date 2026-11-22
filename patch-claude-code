@@ -76,7 +76,8 @@ surfaces hardcode their own sizes besides. This script patches:
                        and at the x-height of the text around it, and with
                        no background or padding; draw markdown tables
                        with slightly brighter lines, rounded corners and
-                       .5em of space at each side of a cell's text, and
+                       .5em of space at each side of a cell's text, with
+                       each cell's text at the top of its row, and
                        in replies, 1em of space above and below each
                        table, like between paragraphs; draw VS Code's
                        square scrollbars instead of Chrome's, with vertical ones
@@ -577,7 +578,10 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			# the table's corners by the webview's medium corner radius
 			# (6px; the input box's is 8px), and pad each cell by .5em at
 			# the left and right, about the space that the line height
-			# leaves above and below its text. Rounded corners need
+			# leaves above and below its text. Align each cell's content to
+			# the top of its row (the default is the middle), so that the
+			# first lines of a row's cells line up when one cell wraps to
+			# more lines than the others. Rounded corners need
 			# separate borders, not collapsed ones: the table draws the
 			# outer lines, and each cell draws its top and left line,
 			# unless the cell is in the table's first row or first column.
@@ -591,7 +595,7 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			 r".root_\2 table{border-collapse:separate;border-spacing:0;border-color:" + TABLE_LINE
 			 + ";border-radius:var(--corner-radius-medium)}"
 			 r".root_\2 :is(th,td){border-width:1px 0 0 1px;border-color:" + TABLE_LINE
-			 + ";padding:2px .5em}"
+			 + ";padding:2px .5em;vertical-align:top}"
 			 r".root_\2 tr>:first-child{border-left-width:0}"
 			 r".root_\2 table>:first-child>tr:first-child>*{border-top-width:0}"
 			 + REPLY_TEXT + " table:not(:first-child){margin-top:1em}"
