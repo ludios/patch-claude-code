@@ -14,7 +14,8 @@ says how many lines it hides instead of fading out, so copying text from
 the chat gives markdown, so a click on a commit ID in the chat shows that
 commit, so a chat's editor tab shows a spinning logo while its session
 runs (background tasks included), so its input footer counts the running
-background tasks, and, on NixOS, so its native binary can run at all.
+background tasks, so the chat's spinner stays after a turn while any of
+them runs, naming them, and, on NixOS, so its native binary can run at all.
 
 VS Code injects the real editor font into every webview as the
 --vscode-editor-font-family / --vscode-editor-font-size (px) CSS variables,
@@ -78,7 +79,8 @@ surfaces hardcode their own sizes besides. This script patches:
                        under it, how many more lines it hides (counted by
                        an effect added in index.js); pulse the dot of the
                        input footer's Agents pill while it is the running
-                       dot
+                       dot; fit the spinner row that the chat keeps for
+                       background tasks (see index.js) on one line
   webview/index.js   - pass the family variable into the embedded Monaco
                        diff editors (they already take their size from the
                        size variable); hide the model picker's Default row,
@@ -109,7 +111,10 @@ surfaces hardcode their own sizes besides. This script patches:
                        not just while an agent or a workflow does, and
                        show the input footer's Agents pill (which opens
                        the Agent map) then too, with the number of those
-                       tasks that are not agents in its label
+                       tasks that are not agents in its label; after a
+                       turn, while any of those tasks runs, keep the
+                       chat's spinner row, labeled with their number and
+                       descriptions, opening the Agent map when clicked
   resources/native-binary/claude
                      - on NixOS only: point its ELF interpreter at the
                        system's dynamic loader (taken from
@@ -182,6 +187,15 @@ TABLE_LINE = "color-mix(in srgb,var(--app-input-border),var(--app-primary-foregr
 # A CSS condition for browsers that draw scrollbars by ::-webkit-scrollbar
 # rules, like Chrome (and so VS Code) does.
 WEBKIT_SCROLLBARS = "@supports selector(::-webkit-scrollbar)"
+# A JS function of a session's pccTasks (see index.js) that returns the
+# label of the chat's spinner row while those tasks run, such as
+# "2 background tasks: Review commit 6e3d7a7 · Watch CI", or false when
+# there are none.
+TASKS_LABEL = (
+	'(pccTasks)=>pccTasks.length>0'
+	'&&`${pccTasks.length} background ${pccTasks.length===1?"task":"tasks"}: '
+	'${pccTasks.map((pccTask)=>pccTask.description||pccTask.type).join(" · ")}`'
+)
 # The editor's family variable, read at Monaco-editor construction time in JS.
 MONACO_FONT_FAMILY = (
 	'fontFamily:getComputedStyle(document.documentElement)'
@@ -504,6 +518,18 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			 "@media (prefers-reduced-motion:no-preference)"
 			 "{[data-agents-dot=running]>[data-status-dot=running]{animation:pccPulse 1.2s ease-in-out infinite}}"
 			 "@keyframes pccPulse{50%{opacity:.25}}"),
+			# Fit the spinner row that the chat keeps while background tasks
+			# run (see index.js, which marks it data-pcc-tasks) on one line,
+			# cutting off its label (not its icon) with an ellipsis, and
+			# underline the label on hover, as a click on the row opens the
+			# Agent map. The row's spinner draws its icon, its label and a
+			# text for screen readers, in that order, as three spans.
+			(re.compile(r"\Z"),
+			 "[data-pcc-tasks]{display:flex;min-width:0;cursor:pointer}"
+			 "[data-pcc-tasks]>*{min-width:0}"
+			 "[data-pcc-tasks]>*>:first-child{flex-shrink:0}"
+			 "[data-pcc-tasks]>*>:nth-child(2){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
+			 "[data-pcc-tasks]:hover>*>:nth-child(2){text-decoration:underline}"),
 		],
 		"webview/index.js": [
 			# The two embedded Monaco diff editors (chat diffs and previews).
@@ -705,6 +731,26 @@ def patterns(mythos: bool) -> dict[str, list[tuple[re.Pattern[str], Replacement]
 			 r'\1,pccTasks=0\4if(pccTasks>0&&\3!=="waiting")\3="running";\5'
 			 r'if(pccTasks>0){\6=(\2>0?\6+" · ":"")+pccTasks+(pccTasks===1?" task":" tasks");'
 			 r'if(\2===0&&\3==="running")\7="Background tasks are running · Click to open the agent map"}'),
+			# The chat shows its spinner row while the session is visibly
+			# busy and no permission prompt or question waits. Show it also
+			# while the session is not busy but any of those tasks runs,
+			# with TASKS_LABEL's label in place of the random verbs: given
+			# a label, the row's usual spinner shows it instead of them
+			# (the engine surface's spinner, which takes no label, is not
+			# used then). A click on the row clicks the footer's Agents
+			# pill (shown while those tasks run), which opens the Agent
+			# map, where the tasks are listed; the row has no handle on the
+			# function that the pill calls. Found by the flag that says
+			# when to show the row.
+			(re.compile(r"let ([\w$]+)=(([\w$]+)\.visiblyBusy\.value)"
+			            r"(&&!\3\.permissionRequests\.value\.length&&!\3\.userDialogRequests\.value\.length,"
+			            r'[\w$]+=([\w$]+)\("div",\{className:[\w$]+\.spinnerRow,children:\5\("div",\{)'
+			            r"(className:[\w$]+\.spinner,children:\1&&\(\3\.engineSurface)"
+			            r"(\?[^;]*?:\5\([\w$]+,\{)(?=permissionMode:)"),
+			 r"let pccLabel=!\3.busy.value&&(" + TASKS_LABEL + r")(\3.pccTasks.value),\1=(\2||pccLabel)\4"
+			 r'...(pccLabel&&{"data-pcc-tasks":"",title:pccLabel+" · Click to open the agent map",'
+			 r'onClick:()=>document.querySelector("[data-agents-dot]")?.click()}),'
+			 r"\6&&!pccLabel\7label:pccLabel||void 0,"),
 		],
 		"extension.js": [
 			# Feed the webview override from editor.* instead of chat.editor.*
