@@ -115,12 +115,12 @@ surfaces hardcode their own sizes besides. This script patches:
                        size variable); hide the model picker's Default row,
                        checking the row the default resolves to instead;
                        show the tokens in context (e.g. "152k") right of the
-                       input footer's prompt-cache clock, and keep that count
-                       through API errors; stop pinning each prompt to the
-                       top of the chat while its turn scrolls by, and show
-                       it in full instead of behind "Show more"; make the
-                       component that draws most tool calls' IN and OUT
-                       cells (and the Write tool's preview) count the
+                       input footer's prompt-cache clock; stop pinning each
+                       prompt to the top of the chat while its turn scrolls
+                       by, and show it in full instead of behind "Show
+                       more"; make the component that draws most tool
+                       calls' IN and OUT cells (and the Write tool's
+                       preview) count the
                        lines that it hides; have the webview's own copy
                        listener make the copy of every selection (not just
                        of those with math in them), from when the webview
@@ -737,11 +737,6 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			 r'if(\3==="default"&&pccDefault)'
 			 r'\3=\2.find((m)=>m!==pccDefault&&m.resolvedModel===pccDefault.resolvedModel?.replace("[1m]",""))?.value??\3;'
 			 r'\4(\2??[]).filter((m)=>m.value!=="default"))'),
-			# Keep the session's context-usage count when a synthetic
-			# assistant message (API error, notice) arrives: its usage is
-			# all zeros, which would blank the count until the next response.
-			(re.compile(r"if\(this\.updateUsage\(([\w$]+)\.message\.usage\),(\1\.message\.model!==[\w$]+)\)"),
-			 r"if(\2&&this.updateUsage(\1.message.usage),\2)"),
 			# Right of the input footer's prompt-cache clock ("60m"), show how
 			# many tokens are in context, styled like the clock's text, with
 			# the exact count on hover. It is the count behind the footer's
