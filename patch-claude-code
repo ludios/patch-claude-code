@@ -43,11 +43,11 @@ surfaces hardcode their own sizes besides. This script patches:
                        directory)
   resources/claude-logo-running.svg
                      - created: the plain logo, spinning
-  webview/index.css  - point --monaco-monospace-font at the editor font, and
-                       give each monospace rule whose own font-size is small
-                       (under 14px, a fraction of an em, a percentage,
-                       inherit, or the chat font size, possibly minus some
-                       px) var(--vscode-editor-font-size) instead (tool
+  webview/index.css  - give each monospace rule whose own font-size is
+                       small (under 14px, a fraction of an em, a
+                       percentage, inherit, or the chat font size, possibly
+                       minus some px) var(--vscode-editor-font-size)
+                       instead (tool
                        IN/OUT rows, markdown code blocks,
                        slash-command echoes, permission requests, pills,
                        git summaries, changed-file lists, MCP dialogs,
@@ -110,6 +110,7 @@ surfaces hardcode their own sizes besides. This script patches:
                        the permission prompts and the first-week questions
                        card) from 680px to 56 times the chat font size, or
                        680px if that is wider
+  webview/monaco.css - point --monaco-monospace-font at the editor font
   webview/index.js   - pass the family variable into the embedded Monaco
                        diff editors (they already take their size from the
                        size variable); hide the model picker's Default row,
@@ -457,9 +458,6 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			[widen_to_input_width("inputContainer"), widen_to_input_width("inputWrapper")],
 			widen_to_input_width("permissionsContainer"),
 			widen_to_input_width("card"),
-			# Monaco widget font (hovers, suggest details).
-			(re.compile(r"--monaco-monospace-font:"),
-			 "--monaco-monospace-font:" + EDITOR_FAMILY + ","),
 			# The "small monospace" size (branch pills, changed-file lists,
 			# git summaries) becomes the plain editor size.
 			(re.compile(r"--app-monospace-font-size-small:[^;}]+"),
@@ -716,6 +714,11 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			 r"\1.root_\2 a{text-decoration:var(--text-link-decoration,none)}"
 			 r".root_\2 a code{text-decoration:none}"
 			 r".root_\2 code>a[href^=" + scheme + r"]{word-break:normal;overflow-wrap:break-word}"),
+		],
+		"webview/monaco.css": [
+			# Monaco widget font (hovers, suggest details).
+			(re.compile(r"--monaco-monospace-font:"),
+			 "--monaco-monospace-font:" + EDITOR_FAMILY + ","),
 		],
 		"webview/index.js": [
 			# The two embedded Monaco diff editors (chat diffs and previews).
