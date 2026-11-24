@@ -107,9 +107,8 @@ surfaces hardcode their own sizes besides. This script patches:
                        AskUserQuestion prompt selectable, and its options
                        and question tabs (once index.js marks them);
                        raise the maximum width of the input box (and of
-                       the permission prompts and the first-week questions
-                       card) from 680px to 56 times the chat font size, or
-                       680px if that is wider
+                       the permission prompts) from 680px to 56 times the
+                       chat font size, or 680px if that is wider
   webview/monaco.css - point --monaco-monospace-font at the editor font
   webview/index.js   - pass the family variable into the embedded Monaco
                        diff editors (they already take their size from the
@@ -452,12 +451,10 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			# footer's texts do. The box is capped both by its absolutely
 			# positioned container and by its own wrapper inside that, so
 			# the two rules are widened together or not at all. The
-			# permission prompts, which replace the box inside the
-			# same container, and the first-week questions card, which is
-			# right above the box in a new chat, get the same width.
+			# permission prompts, which replace the box inside the same
+			# container, get the same width.
 			[widen_to_input_width("inputContainer"), widen_to_input_width("inputWrapper")],
 			widen_to_input_width("permissionsContainer"),
-			widen_to_input_width("card"),
 			# The "small monospace" size (branch pills, changed-file lists,
 			# git summaries) becomes the plain editor size.
 			(re.compile(r"--app-monospace-font-size-small:[^;}]+"),
