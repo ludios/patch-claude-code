@@ -582,8 +582,8 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			 "{color:inherit;background:none;padding:0"
 			 + ";" + PARENT_X_HEIGHT + ";line-height:1}"),
 			# Markdown tables (in replies and elsewhere) have square
-			# corners, lines in the input box's border color, and 2px of
-			# padding in each cell. Draw their lines in TABLE_LINE, round
+			# corners, cell lines in the input box's border color, and 2px
+			# of padding in each cell. Draw their lines in TABLE_LINE, round
 			# the table's corners by the webview's medium corner radius
 			# (6px; the input box's is 8px), and pad each cell by .5em at
 			# the left and right, about the space that the line height
@@ -592,20 +592,21 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			# stylesheet instead centers each cell's content vertically in
 			# its row), so that the first lines of a row line up even when
 			# one cell wraps to more lines than the others, or when one
-			# cell's first line is taller than the other cells' first
-			# lines (as with tall inline math). Rounded corners need
-			# separate borders, not collapsed ones: the table draws the
-			# outer lines, and each cell draws its top line (unless it is
-			# in the table's first row) and its left line (unless it is in
-			# the table's first column). The table's CSS-module hash is
-			# captured from the stock cell rule, after which these rules
-			# are inserted, so that they win. In replies, a table also gets
-			# the 1em of space that separates adjacent paragraphs there,
-			# above it and below it (except at the start and end of the
-			# element it is in).
+			# cell's first line is taller than the other cells' first lines
+			# (as with tall inline math). Rounded corners need separate
+			# borders, not collapsed ones: the table draws the outer lines
+			# (with a border of its own, as the stock table, which scrolls
+			# sideways when too wide, has none), and each cell draws its top
+			# line (unless it is in the table's first row) and its left line
+			# (unless it is in the table's first column). The table's
+			# CSS-module hash is captured from the stock cell rule, after
+			# which these rules are inserted, so that they win. In replies,
+			# a table also gets the 1em of space that separates adjacent
+			# paragraphs there, above it and below it (except at the start
+			# and end of the element it is in).
 			(re.compile(r"(\.root_([\w-]+) th,\.root_\2 td\{[^}]*\})"),
 			 r"\1"
-			 r".root_\2 table{border-collapse:separate;border-spacing:0;border-color:" + TABLE_LINE
+			 r".root_\2 table{border-collapse:separate;border-spacing:0;border:1px solid " + TABLE_LINE
 			 + ";border-radius:var(--corner-radius-medium)}"
 			 r".root_\2 :is(th,td){border-width:1px 0 0 1px;border-color:" + TABLE_LINE
 			 + ";padding:2px .5em;vertical-align:baseline}"
