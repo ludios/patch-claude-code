@@ -937,12 +937,13 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 				# working), and show the running dot, with that label in its
 				# title ("2 tasks running · Click to open the agent map", which
 				# also shows the numbers when a narrow footer hides the label),
-				# unless an agent waits for permission.
-				(re.compile(r"(function [\w$]+\(\{count:([\w$]+),dot:([\w$]+),onOpen:[\w$]+[^{}()]*)(\}\)\{)"
-				            r"(let ([\w$]+)=[\w$]+\(\2\),([\w$]+)=[\w$]+\(\3\);)"),
-				 r'\1,pccTasks=0\4if(pccTasks>0&&\3!=="waiting")\3="running";\5'
-				 r'if(pccTasks>0){\6=(\2>0?\6+" · ":"")+pccTasks+(pccTasks===1?" task":" tasks");'
-				 r'if(\3==="running")\7=\6+" running · Click to open the agent map"}'),
+				# unless an agent waits for permission. The pill's new
+				# parameter goes first, as nothing may follow a rest element.
+				(re.compile(r"(function [\w$]+\(\{)(count:([\w$]+),dot:([\w$]+),onOpen:[\w$]+[^{}()]*\}\)\{)"
+				            r"(let ([\w$]+)=[\w$]+\(\3\),([\w$]+)=[\w$]+\(\4\);)"),
+				 r'\1pccTasks=0,\2if(pccTasks>0&&\4!=="waiting")\4="running";\5'
+				 r'if(pccTasks>0){\6=(\3>0?\6+" · ":"")+pccTasks+(pccTasks===1?" task":" tasks");'
+				 r'if(\4==="running")\7=\6+" running · Click to open the agent map"}'),
 				# The chat shows its spinner row while the session is visibly
 				# busy (busy, with the extension host responding, and not held
 				# by another panel) and no permission prompt or question waits.
