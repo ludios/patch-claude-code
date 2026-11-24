@@ -47,8 +47,7 @@ surfaces hardcode their own sizes besides. This script patches:
                        small (under 14px, a fraction of an em, a
                        percentage, inherit, or the chat font size, possibly
                        minus some px) var(--vscode-editor-font-size)
-                       instead (tool
-                       IN/OUT rows, markdown code blocks,
+                       instead (tool IN/OUT rows, markdown code blocks,
                        slash-command echoes, permission requests, pills,
                        git summaries, changed-file lists, MCP dialogs,
                        ...);
@@ -109,7 +108,8 @@ surfaces hardcode their own sizes besides. This script patches:
                        raise the maximum width of the input box (and of
                        the permission prompts) from 680px to 56 times the
                        chat font size, or 680px if that is wider
-  webview/monaco.css - point --monaco-monospace-font at the editor font
+  webview/monaco.css - point --monaco-monospace-font (code in Monaco's
+                       hovers and select boxes) at the editor font
   webview/index.js   - pass the family variable into the embedded Monaco
                        diff editors (they already take their size from the
                        size variable); hide the model picker's Default row,
@@ -118,42 +118,39 @@ surfaces hardcode their own sizes besides. This script patches:
                        input footer's prompt-cache clock; stop pinning each
                        prompt to the top of the chat while its turn scrolls
                        by, and show it in full instead of behind "Show
-                       more"; make the component that draws most tool
-                       calls' IN and OUT cells (and the Write tool's
-                       preview) count the
-                       lines that it hides; have the webview's own copy
+                       more"; make the component that draws most tool calls'
+                       IN and OUT cells (and the Write tool's preview) count
+                       the lines that it hides; have the webview's own copy
                        listener make the copy of every selection (not just
                        of those with math in them), from when the webview
                        starts, and insert copy-as-markdown.js (from this
-                       script's directory), which replaces the plain text
-                       of such a copy with markdown when the selection
-                       includes rendered markdown (copying commit links as
-                       their text); insert commit-links.js, whose remark
-                       plugin makes each commit ID in the prose and inline
-                       code of markdown with live links a link to
-                       COMMIT_SCHEME + the ID, inside inline code (an ID
-                       in prose gets inline code of its own), keep those
-                       addresses through react-markdown's URL sanitizing,
-                       and have a click on such a link ask the extension
-                       to open its address, and its "Copy Link" copy the
-                       ID; mark the options and question tabs of an
-                       AskUserQuestion prompt for the CSS to make
-                       selectable, and have each such option or tab
-                       ignore a click that ends a drag that selected some
-                       of that option's or tab's text, and while a mouse
-                       button is held, have pointing at an option not
+                       script's directory), which replaces the plain text of
+                       such a copy with markdown when the selection includes
+                       rendered markdown (copying commit links as their
+                       text); insert commit-links.js, whose remark plugin
+                       makes each commit ID in the prose and inline code of
+                       markdown with live links a link to COMMIT_SCHEME +
+                       the ID, inside inline code (an ID in prose gets
+                       inline code of its own), keep those addresses through
+                       react-markdown's URL sanitizing, and have a click on
+                       such a link ask the extension to open its address,
+                       and its "Copy Link" copy the ID; mark the options and
+                       question tabs of an AskUserQuestion prompt for the
+                       CSS to make selectable, and have each such option or
+                       tab ignore a click that ends a drag that selected
+                       some of that option's or tab's text, and while a
+                       mouse button is held, have pointing at an option not
                        switch the option preview to it; keep each session's
-                       background tasks that the CLI counts as activity,
-                       and report a session as
-                       running (for its tab icon) while any of them runs,
-                       not just while an agent or a workflow does, and
-                       show the input footer's Agents pill (which opens
-                       the Agent map) also while any of those tasks that
-                       are not agents runs, with their number in its
-                       label; after a
-                       turn, while any of those tasks runs, keep the
-                       chat's spinner row, labeled with their number and
-                       descriptions, opening the Agent map when clicked
+                       background tasks that the CLI counts as activity, and
+                       report a session as running (for its tab icon) while
+                       any of them runs, not just while an agent or a
+                       workflow does, and show the input footer's Agents
+                       pill (which opens the Agent map) also while any of
+                       those tasks that are not agents runs, with their
+                       number in its label; after a turn, while any of those
+                       tasks runs, keep the chat's spinner row, labeled with
+                       their number and descriptions, opening the Agent map
+                       when clicked
   resources/native-binary/claude
                      - on NixOS only: point its ELF interpreter at the
                        system's dynamic loader (taken from
@@ -714,7 +711,8 @@ def patterns(mythos: bool) -> dict[str, list[Pattern | Group]]:
 			 r".root_\2 code>a[href^=" + scheme + r"]{word-break:normal;overflow-wrap:break-word}"),
 		],
 		"webview/monaco.css": [
-			# Monaco widget font (hovers, suggest details).
+			# Monaco's font for code in its hovers and in the descriptions
+			# in its select boxes' dropdowns.
 			(re.compile(r"--monaco-monospace-font:"),
 			 "--monaco-monospace-font:" + EDITOR_FAMILY + ","),
 		],
